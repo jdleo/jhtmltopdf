@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT-0"
+repository = "https://github.com/jdleo/jhtmltopdf"
+rust-version = "1.75"
+
+[workspace.dependencies]
+rayon = "1.10"
+thiserror = "1"
+
+jhtml-parse = { path = "crates/jhtml-parse" }
+jhtml-css = { path = "crates/jhtml-css" }
+jhtml-layout = { path = "crates/jhtml-layout" }
+jhtml-text = { path = "crates/jhtml-text" }
+jhtml-pdf = { path = "crates/jhtml-pdf" }
+jhtml-js = { path = "crates/jhtml-js" }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+[profile.bench]
+inherits = "release"

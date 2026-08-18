@@ -1,0 +1,9 @@
+[package]
+name = "jhtml-layout"
+description = "Paged layout stage for jhtmltopdf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

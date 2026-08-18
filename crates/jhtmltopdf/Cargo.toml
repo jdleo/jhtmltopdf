@@ -1,0 +1,23 @@
+[package]
+name = "jhtmltopdf"
+description = "Pure-Rust HTML to PDF engine. No browser engine, no native deps."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[lib]
+name = "jhtmltopdf"
+
+[[bin]]
+name = "jhtmltopdf"
+path = "src/main.rs"
+
+[dependencies]
+jhtml-parse.workspace = true
+jhtml-css.workspace = true
+jhtml-layout.workspace = true
+jhtml-text.workspace = true
+jhtml-pdf.workspace = true
+jhtml-js.workspace = true

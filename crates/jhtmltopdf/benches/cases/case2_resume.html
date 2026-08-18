@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style type="text/css">
+    h1 {
+      font-family: Georgia, "Times New Roman", serif;
+      font-weight: 700;
+      font-size: 1.5em;
+      margin: 0.35em 0;
+    }
+
+    h2 {
+      font-family: Arial, Helvetica, sans-serif;
+      font-weight: 500;
+      font-size: 1em;
+      margin: 8px 0 4px;
+    }
+
+    p {
+      font-family: Arial, Helvetica, sans-serif;
+      margin: 4px 0 8px;
+      line-height: 1.25;
+    }
+
+    a {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 0.9em;
+    }
+
+    ul {
+      margin-top: 3px;
+      margin-bottom: 9px;
+    }
+
+    li {
+      font-family: Arial, Helvetica, sans-serif;
+      font-weight: 400;
+      font-size: 0.82em;
+      margin-top: 3px;
+      line-height: 1.25;
+    }
+
+    .section {
+      margin-top: 5px;
+    }
+
+    .section-header {
+      display: -webkit-box;
+      display: -ms-flexbox;
+      display: flex;
+      -webkit-box-pack: justify;
+      -ms-flex-pack: justify;
+      justify-content: space-between;
+    }
+
+    .section-block {
+      font-family: Arial, Helvetica, sans-serif;
+      font-weight: 700;
+      font-size: 0.9em;
+      padding: 6px 20px;
+    }
+
+    .section-first>div {
+      text-align: left;
+    }
+
+    .section-second>div {
+      text-align: center;
+    }
+
+    .section-third>div {
+      text-align: right;
+    }
+
+    .header-first {
+      text-align: left;
+    }
+
+    .header-second {
+      text-align: center;
+    }
+
+    .header-third {
+      text-align: right;
+    }
+
+    #header {
+      display: -webkit-box;
+      display: -ms-flexbox;
+      display: flex;
+      -webkit-box-pack: justify;
+      -ms-flex-pack: justify;
+      justify-content: space-between;
+    }
+  </style>
+  <title>John Leonardo Resume</title>
+</head>
+
+<body>
+  <div id="header">
+    <div class="headerBlock header-second" style="width: 100%">
+      <h1>John Leonardo</h1>
+    </div>
+  </div>
+  <div style="margin-bottom: 8px; width: 100%; text-align: center">
+    <div style="display: inline-flex; gap: 30px">
+      <a href="jdleo.me">jdleo.me</a>
+      <span style="color: #666">|</span>
+      <a href="linkedin.com/in/jdleo">linkedin.com/in/jdleo</a>
+      <span style="color: #666">|</span>
+      <a href="mailto:johndleonardo@gmail.com">johndleonardo@gmail.com</a>
+      <span style="color: #666">|</span>
+      <a>346-401-5302</a>
+      <span style="color: #666">|</span>
+      <a>San Jose, California</a>
+    </div>
+  </div>
+  <div class="section">
+    <h2>PROFESSIONAL SUMMARY</h2>
+    <hr />
+    <p style="font-size: 0.9em">
+      Senior Software Engineer, 6+ years in production ML/AI and distributed infrastructure, 80k TPS search to agent
+      platforms. Architect of a production LLM agent and its evaluation system; owner of the kernel-enforced security
+      boundary for Roblox's company-wide AI coding agents.
+    </p>
+  </div>
+  <div class="section">
+    <h2>EMPLOYMENT</h2>
+    <hr />
+    <div class="section-header">
+      <div class="section-block section-first">
+        <div style="width: 300px"><span>Senior Software Engineer</span></div>
+      </div>
+      <div class="section-block section-second">
+        <div style="width: 200px"><span>Roblox</span></div>
+      </div>
+      <div class="section-block section-third">
+        <div style="width: 300px"><span>June 2025 - Present</span></div>
+      </div>
+    </div>
+    <ul>
+      <li>
+        Architected the production AI assistant backend: supervisor routing three LangGraph subgraphs, ReAct
+        tool-calling bounded at 10 iterations and 40 node executions with rolling summarization, an enumerated
+        19-operation tool surface instead of a full API, and per-user delegated auth via short-lived transaction tokens
+        with identity injected server-side into agent runtime config, never prompt content.
+      </li>
+      <li>
+        Designed the retrieval eval system from first principles after inheriting it off-track and pulled from CI for a
+        security finding: replaced synthetic personas scored by an LLM judge, uncorrelated with human raters, with
+        deterministic document-retrieval scoring against golden ground truth. Tool-call recall 32% to 62% on a
+        52-builder gold set, no regression across IC/manager, job family, or comp-level subgroups.
+      </li>
+      <li>
+        Own agent sandbox and containment for Roblox's company-wide AI coding agent rollout: the kernel-enforced network
+        and filesystem boundary, default-installed on every Roblox Mac, that all engineer-run AI agents execute inside.
+      </li>
+      <li>
+        Hardened kernel network enforcement in a macOS System Extension (transparent-proxy interception, TLS SNI
+        inspection, selective MITM): traced a four-stage path silently blocking internal endpoints, shipped a
+        port-enforced private-CIDR exemption rejecting prefixes straddling public space, mutation-tested the guard to
+        prove exactly two of 1,179 tests gate it.
+      </li>
+      <li>
+        Designed multi-app generalization of the enforcement daemon: EndpointSecurity AUTH_EXEC classification by
+        code-signing identity for race-free registration, replacing per-app wrapper coupling with a two-tier trust
+        model and per-TLS-stack CA delivery via MDM.
+      </li>
+      <li>
+        Introduced Temporal; built the async platform every background AI feature runs on. Self-reconciling schedules,
+        ~10 lines per new job type, 3,000+ users per cycle inside an 8-hour overnight window.
+      </li>
+      <li>
+        Killed pool exhaustion and silent model fallbacks under unbounded agent fan-out: capped concurrency at 30/pod
+        (150 cluster-wide, matched to the DB pool) and 20 TPS against a 30 TPS gateway budget. Sustains ~1,520 jobs and
+        4,091 tool-calling LLM calls per run.
+      </li>
+    </ul>
+    <div class="section-header">
+      <div class="section-block section-first">
+        <div style="width: 300px"><span>Software Engineer II</span></div>
+      </div>
+      <div class="section-block section-second">
+        <div style="width: 200px"><span>Amazon</span></div>
+      </div>
+      <div class="section-block section-third">
+        <div style="width: 300px">
+          <span>September 2021 - June 2025</span>
+        </div>
+      </div>
+    </div>
+    <ul>
+      <li>
+        Delivered and deployed a RoBERTa-based NER Query Understanding
+        solution using an ensemble model architecture: split ONNX for encoding
+        and NER predictions. Made use of Triton + ECS and launched A/B
+        experiment which confirmed $290MM additional revenue for Amazon.
+      </li>
+      <li>
+        Key contributor to the launch of Rufus, Amazon's LLM-based shopping
+        assistant, by developing a Query Planner service. Productionized
+        quantized RoBERTa models (Triton ECS), enabling 20k TPS processing
+        while maintaining detent height error rate below 0.03%.
+      </li>
+      <li>
+        Upgraded Amazon Search service infrastructure (80k TPS), implementing
+        AppConfig-based throttling, migrating logs to AWS CloudWatch,
+        modernized to JDK 17, and transitioned systems from a legacy system
+        (Apollo) to AWS within six months.
+      </li>
+      <li>
+        Directly managed 3 interns and mentored 4 engineers, with 3 successful SDE1 -> SDE2
+        promotions (including promo document authorship).
+      </li>
+    </ul>
+    <div class="section-header">
+      <div class="section-block section-first">
+        <div style="width: 300px"><span>Software Engineer</span></div>
+      </div>
+      <div class="section-block section-second">
+        <div style="width: 200px"><span>IBM</span></div>
+      </div>
+      <div class="section-block section-third">
+        <div style="width: 300px"><span>August 2020 - August 2021</span></div>
+      </div>
+    </div>
+    <ul>
+      <li>
+        Built a Salesforce-to-OpenShift integration for batch processing, increasing throughput by 300% for 10GB+
+        daily data volume.
+      </li>
+      <li>
+        Built a RESTful abstraction layer over legacy print infrastructure, cutting processing time from 4
+        minutes to 20 seconds.
+      </li>
+    </ul>
+  </div>
+  <div class="section">
+    <h2>EDUCATION</h2>
+    <hr />
+    <div class="section-header">
+      <div class="section-block section-first">
+        <div style="width: 200px"><span>Sacramento, CA</span></div>
+      </div>
+      <div class="section-block section-second">
+        <div style="width: 350px">
+          <span>California State University, Sacramento</span>
+        </div>
+      </div>
+      <div class="section-block section-third">
+        <div style="width: 200px"><span>August 2017 - May 2020</span></div>
+      </div>
+    </div>
+    <ul>
+      <li>B.S. in Computer Science with Minor in Mathematics</li>
+    </ul>
+  </div>
+  <div class="section">
+    <h2>PROJECTS</h2>
+    <hr />
+    <ul>
+      <li><b>resume.rodeo</b> - AI resume coaching (Gemini + Next.js); 1000+ users.</li>
+      <li><b>adaptivewealth.ai</b> - AI financial advisory. Co-founder (departed); raised $500K seed at $7.1M valuation, AI2 Incubator.</li>
+      <li><b>stockquantai.com</b> - AI agent for quantitative research in US equities.</li>
+      <li><b>link.fyi</b> - Link shortener that just works.</li>
+      <li><b>jdleo.me/blog & jdleo.me/apps</b> - 12+ technical articles and apps on LLMs and AI architectures.</li>
+    </ul>
+  </div>
+  <div class="section">
+    <h2>SKILLS</h2>
+    <hr />
+    <ul>
+      <li>
+        <b>Languages:</b> Python, TypeScript/JavaScript, Java, Go, Swift, Kotlin, C++, Rust, C#, Elixir
+      </li>
+      <li>
+        <b>Frameworks & Libraries:</b> React, Next.js, Spring Boot, FastAPI, Flask, Node.js, Express, GraphQL,
+        Tailwind CSS, SwiftUI, Temporal, Playwright, Selenium, Ktor, D3/Recharts, Redux, Zod, Bun, Gradle, CMake,
+        Bazel, HealthKit, StoreKit
+      </li>
+      <li>
+        <b>Cloud, Infra, Databases:</b> AWS (S3, Lambda, ECS, CloudWatch, DynamoDB), GCP, Firebase, Vercel,
+        Kubernetes, Docker, OpenShift, Terraform, GitLab CI/CD; PostgreSQL, MongoDB, Redis, SQLite, Firestore, Neon;
+        Datadog, CloudFormation
+      </li>
+      <li>
+        <b>ML/AI:</b> PyTorch, scikit-learn, XGBoost, LightGBM, TensorFlow, ONNX, Triton; fine-tuning transformers
+        (RoBERTa, BERT); RAG, knowledge graphs, embeddings, semantic search; LLM integrations (Claude, GPT, Gemini);
+        A/B testing, NumPy, Pandas
+      </li>
+    </ul>
+  </div>
+</body>
+
+</html>
