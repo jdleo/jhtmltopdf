@@ -7,3 +7,5 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+jhtml-layout.workspace = true
+jhtml-text.workspace = true

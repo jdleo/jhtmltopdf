@@ -7,3 +7,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+html5ever = "0.27"
+markup5ever_rcdom = "0.3"
+tendril = "0.4"

@@ -1,31 +1,30 @@
 //! jhtmltopdf: pure-Rust HTML to PDF engine.
 //!
-//! Pipeline: parse, cascade, layout, shape, write. Each stage is its own
-//! crate; this facade threads them together. See SPEC.md in the repo root.
+//! Pipeline: parse, cascade, layout, write. Each stage is its own crate;
+//! this facade threads them together. See SPEC.md in the repo root.
 
 use jhtml_css::Stylesheet;
-use jhtml_layout::PageGeometry;
+use jhtml_layout::layout;
 use jhtml_parse::Document;
 
 /// Render HTML bytes into PDF bytes.
 pub fn render(html: &[u8]) -> Vec<u8> {
     let doc = Document::parse(html);
-    let _ss = Stylesheet::default();
-    let _geo = PageGeometry::default();
-    let _scripts = jhtml_js::ScriptOutput::default();
-    let _text = jhtml_text::GlyphRun {
-        text: doc.title.clone().unwrap_or_default(),
-        font_size_pt: 18.0,
-        advance_pt: 0.0,
-    };
-    jhtml_pdf::write_stub_pdf(doc.title.as_deref().unwrap_or("jhtmltopdf"))
+    let ss = Stylesheet::parse(&doc.style_rules());
+    let pages = layout(&doc, &ss);
+    jhtml_pdf::write_pdf(&pages, doc.title().as_deref())
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
-    fn render_threads_all_stages() {
-        let pdf = crate::render(b"<html><title>t</title></html>");
-        assert!(String::from_utf8_lossy(&pdf).contains("(t)"));
+    fn simple_doc_renders_text() {
+        let pdf = crate::render(
+            b"<html><head><title>t</title></head><body><p>hello world</p></body></html>",
+        );
+        let s = String::from_utf8_lossy(&pdf);
+        assert!(s.contains("hello") && s.contains("world"));
     }
 }
