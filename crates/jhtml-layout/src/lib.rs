@@ -507,15 +507,12 @@ impl<'a> Engine<'a> {
     /// Gather inline words (and <br> markers) from a subtree.
     fn collect_inline(&self, node: &Node, style: &Style, out: &mut Vec<Segment>) {
         let tag = node.tag().unwrap_or("");
-        match tag {
-            "br" => {
-                out.push(Segment {
-                    text: "\n".into(),
-                    ..Segment::default()
-                });
-                return;
-            }
-            _ => {}
+        if tag == "br" {
+            out.push(Segment {
+                text: "\n".into(),
+                ..Segment::default()
+            });
+            return;
         }
         // `style` is this node's already-resolved style; only child elements
         // get resolved (against a chain that carries this style but no
