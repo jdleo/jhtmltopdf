@@ -767,7 +767,6 @@ fn compound_specificity(c: &Compound) -> f32 {
 }
 
 fn apply_decls(s: &mut Style, decls: &HashMap<String, String>, parent_fs: f32) {
-    eprintln!("apply_decls parent_fs={parent_fs} decls={decls:?}");
     // Pass 1: font-size first so em-based lengths below resolve against it.
     if let Some(v) = decls.get("font-size") {
         let fs = parse_pt_rel(v, parent_fs).unwrap_or(parent_fs);
