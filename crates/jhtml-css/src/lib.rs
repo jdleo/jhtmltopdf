@@ -26,6 +26,9 @@ pub struct Style {
     pub page_break_inside: Option<Break>,
     pub font_family: Option<String>,
     pub white_space: Option<WhiteSpace>,
+    pub width: Option<Width>,
+    pub gap_pt: Option<f32>,
+    pub justify: Option<Justify>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,7 +42,21 @@ pub enum Align {
 pub enum Display {
     Block,
     Inline,
+    Flex,
+    InlineFlex,
     None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Justify {
+    Start,
+    SpaceBetween,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Width {
+    Pt(f32),
+    Pct(f32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -364,6 +381,11 @@ fn apply_page_body(body: &str, page: &mut PageRule) {
 }
 
 pub fn parse_pt(s: &str) -> Option<f32> {
+    parse_pt_rel(s, 0.0)
+}
+
+/// Parse a CSS length. `em` resolves against `parent_size_pt`.
+pub fn parse_pt_rel(s: &str, parent_size_pt: f32) -> Option<f32> {
     let s = s.trim();
     let (num, unit) = s.split_at(
         s.find(|c: char| c.is_alphabetic() || c == '%')
@@ -376,7 +398,8 @@ pub fn parse_pt(s: &str) -> Option<f32> {
         "in" => n * 72.0,
         "cm" => n * 28.3465,
         "mm" => n * 2.83465,
-        "em" => 0.0,
+        "em" | "rem" if parent_size_pt > 0.0 => n * parent_size_pt,
+        "%" => n / 100.0 * parent_size_pt.max(0.001),
         _ => n,
     })
 }

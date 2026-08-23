@@ -33,5 +33,5 @@ fn all_benchmark_cases_produce_valid_pdfs() {
 fn case1_title_lands_in_output() {
     let pdf = render(include_str!("../benches/cases/case1_simple.html").as_bytes());
     let s = String::from_utf8_lossy(&pdf);
-    assert!(s.contains("(Simple)") && s.contains("(Benchmark)"));
+    assert!(s.contains("(Simple)") && s.contains("(Benchmark:)") && s.contains("(HTML)"));
 }

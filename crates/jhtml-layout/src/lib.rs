@@ -4,7 +4,9 @@
 //! pages of draw ops. The output `Page` list is the canonical intermediate:
 //! jhtml-pdf turns it 1:1 into PDF objects. The layout tree IS the PDF.
 
-use jhtml_css::{parse_pt, Break, Compound, Display, Nth, Rule, Style, Stylesheet};
+use jhtml_css::{
+    parse_pt, parse_pt_rel, Break, Compound, Display, Justify, Nth, Rule, Style, Stylesheet, Width,
+};
 use jhtml_parse::{Document, Node};
 use jhtml_text::{measure, Font};
 
@@ -65,6 +67,9 @@ struct Engine<'a> {
     // Cursor: current page + y position from top.
     page_idx: usize,
     y: f32,
+    /// Loose inline content (text/inline elements outside blocks) waiting
+    /// to be flushed as an anonymous block before the next block layout.
+    pending: Vec<Segment>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -92,6 +97,7 @@ impl<'a> Engine<'a> {
             }],
             y: 0.0,
             page_idx: 0,
+            pending: Vec::new(),
         }
     }
 
@@ -139,6 +145,7 @@ impl<'a> Engine<'a> {
                 self.walk(c, &Resolved::root());
             }
         }
+        self.flush_pending();
     }
 
     fn walk(&mut self, node: &Node, parent: &Resolved) {
@@ -177,12 +184,22 @@ impl<'a> Engine<'a> {
                 | "br"
         );
         if is_block {
+            self.flush_pending();
             self.layout_block(node, &style);
+            self.flush_pending();
         } else {
-            // Inline or transparent: recurse keeping parent style chain.
+            // Inline or transparent: queue text, recurse for descendants.
             for c in node.children() {
                 if let Node::Text(t) = c {
-                    self.push_inline_text(t, &style);
+                    for word in t.split_whitespace() {
+                        self.pending.push(Segment {
+                            text: word.to_string(),
+                            size: style.font_size(12.0),
+                            font: font_for(&style),
+                            color: style.color.unwrap_or([0.08, 0.08, 0.08]),
+                            x: 0.0,
+                        });
+                    }
                 } else {
                     self.walk(c, &Resolved::inherited(parent, style.clone()));
                 }
@@ -190,21 +207,13 @@ impl<'a> Engine<'a> {
         }
     }
 
-    /// Loose text outside any block: emit as an anonymous block.
-    fn push_inline_text(&mut self, text: &str, style: &Style) {
-        let mut segments: Vec<Segment> = Vec::new();
-        for word in text.split_whitespace() {
-            segments.push(Segment {
-                text: word.to_string(),
-                size: style.font_size(12.0),
-                font: font_for(style),
-                color: style.color.unwrap_or([0.08, 0.08, 0.08]),
-                x: 0.0,
-            });
+    /// Emit queued loose inline content as an anonymous block.
+    fn flush_pending(&mut self) {
+        if self.pending.is_empty() {
+            return;
         }
-        if !segments.is_empty() {
-            self.wrap_and_emit(&segments, style, None);
-        }
+        let segs = std::mem::take(&mut self.pending);
+        self.wrap_and_emit(&segs, &Style::default(), None);
     }
 
     fn layout_block(&mut self, node: &Node, style: &Style) {
@@ -227,10 +236,35 @@ impl<'a> Engine<'a> {
         let padding = style.padding.unwrap_or([0.0; 4]);
         self.y += margin[0] + padding[0];
 
+        // Horizontal rule: thin gray line.
+        if tag == "hr" {
+            let line_color = style.border.map(|b| b.color).unwrap_or([0.72; 3]);
+            self.push_op(Op::Rect {
+                x: self.geo.margins[0],
+                y: pdf_y(self.y, self.geo.height_pt, 0.7),
+                w: self.content_width(),
+                h: 0.7,
+                color: line_color,
+            });
+            self.y += 4.0;
+            self.y += margin[3] + padding[3];
+            return;
+        }
+
         // Table handling: rows are blocks of cells laid out horizontally.
         if tag == "table" {
             self.layout_table(node, style);
             self.y += margin[3] + padding[3];
+            return;
+        }
+
+        // Flex row: children laid out horizontally.
+        if style.display == Some(Display::Flex) || style.display == Some(Display::InlineFlex) {
+            self.layout_flex_row(node, style);
+            self.y += margin[3] + padding[3];
+            if style.page_break_after == Some(Break::Always) {
+                self.page_break();
+            }
             return;
         }
 
@@ -245,6 +279,89 @@ impl<'a> Engine<'a> {
         if style.page_break_after == Some(Break::Always) {
             self.page_break();
         }
+    }
+
+    /// Flex row: place children horizontally, honoring justify-content,
+    /// gap, declared widths, and each child's text-align.
+    fn layout_flex_row(&mut self, node: &Node, style: &Style) {
+        let content_w = self.content_width();
+        let children: Vec<&Node> = node
+            .children()
+            .iter()
+            .filter(|c| c.tag().is_some())
+            .collect();
+        if children.is_empty() {
+            return;
+        }
+
+        // Resolve widths and pre-collect inline segments (borrow-safe).
+        let mut child_data: Vec<(Style, f32, Vec<Segment>)> = Vec::new();
+        for c in &children {
+            let cs = self.resolve(c, &Resolved::root());
+            let mut segs = Vec::new();
+            self.collect_inline(c, &cs, &mut segs);
+            let w = match cs.width {
+                Some(Width::Pt(w)) => w,
+                Some(Width::Pct(p)) => content_w * p / 100.0,
+                None => {
+                    // Natural single-line width of the child's content.
+                    let mut nat = 0.0f32;
+                    for s in &segs {
+                        nat += measure(&s.text, s.font(), s.size);
+                    }
+                    nat += segs.len().saturating_sub(1) as f32
+                        * measure(" ", Font::Helvetica, cs.font_size(12.0));
+                    nat.max(1.0)
+                }
+            };
+            child_data.push((cs, w.min(content_w), segs));
+        }
+
+        let n = child_data.len();
+        let total: f32 = child_data.iter().map(|(_, w, _)| *w).sum();
+        let gap = match (style.justify, style.gap_pt) {
+            (Some(Justify::SpaceBetween), _) if n > 1 => (content_w - total) / (n - 1) as f32,
+            (_, g) => g.unwrap_or(0.0),
+        };
+
+        let mut x = self.geo.margins[0];
+        let start_y = self.y;
+        let mut max_h = 0.0f32;
+        for (cs, w, segs) in &child_data {
+            let fs = cs.font_size(12.0);
+            let lh = cs.line_height.unwrap_or(1.35) * fs;
+            let lines = self.wrap_segments(segs, *w, lh);
+            let mut ly = start_y;
+            for line in &lines {
+                let line_w: f32 = line
+                    .last()
+                    .map(|s| s.x + measure(&s.text, s.font(), s.size))
+                    .unwrap_or(0.0);
+                let x0 = match cs.text_align.unwrap_or(jhtml_css::Align::Left) {
+                    jhtml_css::Align::Left => x,
+                    jhtml_css::Align::Center => x + (w - line_w) / 2.0,
+                    jhtml_css::Align::Right => x + w - line_w,
+                };
+                ly += lh;
+                let baseline = pdf_y(ly, self.geo.height_pt, 0.0);
+                for seg in line {
+                    if seg.text == "\n" {
+                        continue;
+                    }
+                    self.push_op(Op::Text {
+                        font: seg.font(),
+                        size: seg.size,
+                        x: x0 + seg.x,
+                        y: baseline,
+                        text: seg.text.clone(),
+                        color: seg.color,
+                    });
+                }
+            }
+            max_h = max_h.max(lines.len() as f32 * lh);
+            x += w + gap;
+        }
+        self.y += max_h;
     }
 
     /// Tables: rows stack vertically, cells flow horizontally in columns.
@@ -391,7 +508,6 @@ impl<'a> Engine<'a> {
     fn collect_inline(&self, node: &Node, style: &Style, out: &mut Vec<Segment>) {
         let tag = node.tag().unwrap_or("");
         match tag {
-            "style" | "script" | "head" | "title" | "meta" | "link" => return,
             "br" => {
                 out.push(Segment {
                     text: "\n".into(),
@@ -401,10 +517,9 @@ impl<'a> Engine<'a> {
             }
             _ => {}
         }
-        let style = self.resolve(
-            node,
-            &Resolved::inherited(&Resolved::default(), style.clone()),
-        );
+        // `style` is this node's already-resolved style; only child elements
+        // get resolved (against a chain that carries this style but no
+        // extra rules) so element rules never apply twice.
         if style.display == Some(Display::None) {
             return;
         }
@@ -416,7 +531,7 @@ impl<'a> Engine<'a> {
                         out.push(Segment {
                             text: t.clone(),
                             size: style.font_size(12.0),
-                            font: font_for(&style),
+                            font: font_for(style),
                             color: style.color.unwrap_or([0.08, 0.08, 0.08]),
                             x: 0.0,
                         });
@@ -425,14 +540,18 @@ impl<'a> Engine<'a> {
                             out.push(Segment {
                                 text: word.to_string(),
                                 size: style.font_size(12.0),
-                                font: font_for(&style),
+                                font: font_for(style),
                                 color: style.color.unwrap_or([0.08, 0.08, 0.08]),
                                 x: 0.0,
                             });
                         }
                     }
                 }
-                Node::Element { .. } => self.collect_inline(c, &style, out),
+                Node::Element { .. } => {
+                    let child_style =
+                        self.resolve(c, &Resolved::inherited(&Resolved::default(), style.clone()));
+                    self.collect_inline(c, &child_style, out);
+                }
                 Node::Ignored => {}
             }
         }
@@ -648,16 +767,28 @@ fn compound_specificity(c: &Compound) -> f32 {
 }
 
 fn apply_decls(s: &mut Style, decls: &HashMap<String, String>, parent_fs: f32) {
+    eprintln!("apply_decls parent_fs={parent_fs} decls={decls:?}");
+    // Pass 1: font-size first so em-based lengths below resolve against it.
+    if let Some(v) = decls.get("font-size") {
+        let fs = parse_pt_rel(v, parent_fs).unwrap_or(parent_fs);
+        s.font_size_pt = Some(fs);
+    }
+    let own_fs = s.font_size_pt.unwrap_or(parent_fs);
+    let lengths = |v: &str| -> Vec<f32> {
+        v.split_whitespace()
+            .filter_map(|p| parse_pt_rel(p, own_fs))
+            .collect()
+    };
     for (k, v) in decls {
         match k.as_str() {
-            "font-size" => {
-                s.font_size_pt = Some(parse_pt(v).unwrap_or(parent_fs));
-            }
+            "font-size" => {}
             "font-weight" => {
-                s.bold = Some(matches!(
-                    v.as_str(),
-                    "bold" | "700" | "800" | "900" | "bolder"
-                ))
+                let n: f32 = v.parse().unwrap_or(match v.as_str() {
+                    "bold" | "bolder" => 700.0,
+                    "light" | "lighter" | "normal" => 400.0,
+                    _ => 400.0,
+                });
+                s.bold = Some(n >= 600.0);
             }
             "font-style" => s.italic = Some(v == "italic" || v == "oblique"),
             "color" => s.color = parse_color(v),
@@ -673,26 +804,57 @@ fn apply_decls(s: &mut Style, decls: &HashMap<String, String>, parent_fs: f32) {
                 s.display = Some(match v.as_str() {
                     "block" => Display::Block,
                     "none" => Display::None,
+                    "flex" | "-webkit-box" | "-ms-flexbox" => Display::Flex,
+                    "inline-flex" => Display::InlineFlex,
                     _ => Display::Inline,
                 })
             }
+            "justify-content" => {
+                s.justify = Some(if v == "space-between" {
+                    jhtml_css::Justify::SpaceBetween
+                } else {
+                    jhtml_css::Justify::Start
+                })
+            }
+            "gap" => {
+                s.gap_pt = v
+                    .split_whitespace()
+                    .next()
+                    .and_then(|g| parse_pt_rel(g, own_fs))
+            }
+            "width" => {
+                s.width = Some(if let Some(pct) = v.strip_suffix('%') {
+                    Width::Pct(pct.trim().parse().unwrap_or(100.0))
+                } else {
+                    Width::Pt(parse_pt_rel(v, own_fs).unwrap_or(0.0))
+                })
+            }
             "line-height" => {
-                s.line_height = Some(v.parse::<f32>().unwrap_or(1.35));
+                // Unitless = multiplier; with units = absolute line height.
+                s.line_height = Some(v.parse::<f32>().unwrap_or_else(|_| {
+                    parse_pt_rel(v, own_fs).unwrap_or(16.0) / own_fs.max(0.001)
+                }));
             }
             "margin" => {
-                let parts: Vec<f32> = v.split_whitespace().filter_map(parse_pt).collect();
+                let parts = lengths(v);
                 s.margin = Some(match parts.len() {
                     1 => [parts[0]; 4],
                     2 => [parts[0], parts[1], parts[0], parts[1]],
+                    3 => [parts[0], parts[1], parts[2], parts[1]],
                     4 => [parts[0], parts[1], parts[2], parts[3]],
                     _ => [0.0; 4],
                 });
             }
+            "margin-top" => s.margin = upsert_margin(s.margin, 0, lengths(v).first().copied()),
+            "margin-right" => s.margin = upsert_margin(s.margin, 1, lengths(v).first().copied()),
+            "margin-bottom" => s.margin = upsert_margin(s.margin, 3, lengths(v).first().copied()),
+            "margin-left" => s.margin = upsert_margin(s.margin, 2, lengths(v).first().copied()),
             "padding" => {
-                let parts: Vec<f32> = v.split_whitespace().filter_map(parse_pt).collect();
+                let parts = lengths(v);
                 s.padding = Some(match parts.len() {
                     1 => [parts[0]; 4],
                     2 => [parts[0], parts[1], parts[0], parts[1]],
+                    3 => [parts[0], parts[1], parts[2], parts[1]],
                     4 => [parts[0], parts[1], parts[2], parts[3]],
                     _ => [0.0; 4],
                 });
@@ -739,8 +901,40 @@ fn parse_break(v: &str) -> Break {
     }
 }
 
+fn upsert_margin(cur: Option<[f32; 4]>, idx: usize, v: Option<f32>) -> Option<[f32; 4]> {
+    let mut m = cur.unwrap_or([0.0; 4]);
+    if let Some(v) = v {
+        m[idx] = v;
+    }
+    Some(m)
+}
+
 fn font_for(style: &Style) -> Font {
-    let mut f = Font::Helvetica;
+    // Map CSS font-family keywords to base-14 fonts.
+    let serif = style
+        .font_family
+        .as_deref()
+        .map(|f| {
+            let f = f.to_ascii_lowercase();
+            f.contains("georgia")
+                || f.contains("times")
+                || f.contains("serif") && !f.contains("sans")
+        })
+        .unwrap_or(false);
+    let mono = style
+        .font_family
+        .as_deref()
+        .map(|f| {
+            f.to_ascii_lowercase().contains("mono") || f.to_ascii_lowercase().contains("courier")
+        })
+        .unwrap_or(false);
+    let mut f = if mono {
+        Font::Courier
+    } else if serif {
+        Font::TimesRoman
+    } else {
+        Font::Helvetica
+    };
     if style.bold == Some(true) {
         f = f.bold();
     }
@@ -906,4 +1100,95 @@ pub fn parse_color(v: &str) -> Option<[f32; 3]> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod m2_tests {
+    use super::*;
+    use jhtml_css::Stylesheet;
+
+    fn render_ops(html: &str) -> Vec<Op> {
+        let doc = Document::parse(html.as_bytes());
+        let ss = Stylesheet::parse(&doc.style_rules());
+        layout(&doc, &ss)[0].ops.clone()
+    }
+
+    #[test]
+    fn flex_space_between_spreads_children() {
+        let ops = render_ops(
+            r#"<style>#r { display: flex; justify-content: space-between; }
+               #r div { width: 50pt; }</style>
+               <body><div id="r"><div>a</div><div>b</div><div>c</div></div></body>"#,
+        );
+        let xs: Vec<f32> = ops
+            .iter()
+            .filter_map(|o| match o {
+                Op::Text { x, text, .. } => Some((*x, text.clone())),
+                _ => None,
+            })
+            .map(|(x, _)| x)
+            .collect();
+        assert_eq!(xs.len(), 3);
+        // First at left margin, last ends at right margin.
+        assert!((xs[0] - 56.7).abs() < 0.5, "x0={}", xs[0]);
+        assert!(xs[2] > 400.0, "x2={}", xs[2]);
+    }
+
+    #[test]
+    fn em_font_sizes_scale_from_parent() {
+        let ops = render_ops(
+            r#"<style>#big { font-size: 1.5em; }</style>
+               <body style="font-size: 12pt"><div id="big">X</div></body>"#,
+        );
+        let sizes: Vec<f32> = ops
+            .iter()
+            .filter_map(|o| match o {
+                Op::Text { size, .. } => Some(*size),
+                _ => None,
+            })
+            .collect();
+        assert!(!sizes.is_empty());
+        assert!((sizes[0] - 18.0).abs() < 0.5, "size={}", sizes[0]);
+    }
+
+    #[test]
+    fn serif_family_maps_to_times() {
+        let ops = render_ops(
+            r#"<style>p { font-family: Georgia, serif; }</style><body><p>text</p></body>"#,
+        );
+        match &ops[0] {
+            Op::Text { font, .. } => assert_eq!(*font, Font::TimesRoman),
+            _ => panic!("expected text op"),
+        }
+    }
+
+    #[test]
+    fn loose_inline_content_stays_on_one_line() {
+        let ops = render_ops("<body><a href=\"#\">one</a> <b>two</b> <span>three</span></body>");
+        let ys: Vec<f32> = ops
+            .iter()
+            .filter_map(|o| match o {
+                Op::Text { y, .. } => Some(*y),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ys.len(), 3);
+        assert_eq!(ys[0], ys[1]);
+        assert_eq!(ys[1], ys[2]);
+    }
+
+    #[test]
+    fn hr_emits_line_rect() {
+        let ops = render_ops("<body><p>x</p><hr><p>y</p></body>");
+        assert!(ops.iter().any(|o| matches!(o, Op::Rect { .. })));
+    }
+
+    #[test]
+    fn numeric_font_weight_500_is_not_bold() {
+        let ops = render_ops(r#"<style>h2 { font-weight: 500; }</style><body><h2>t</h2></body>"#);
+        match &ops[0] {
+            Op::Text { font, .. } => assert_eq!(*font, Font::Helvetica),
+            _ => panic!("expected text op"),
+        }
+    }
 }

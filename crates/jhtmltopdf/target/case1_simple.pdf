@@ -1,0 +1,102 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [6 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.0 842.0] /Resources << /Font << /F2 4 0 R /F1 5 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 4021 >>
+stream
+BT 0.169 0.424 0.690 rg /F2 24.00 Tf 56.70 739.50 Td (HTML) Tj ET
+BT 0.169 0.424 0.690 rg /F2 24.00 Tf 114.04 739.50 Td (to) Tj ET
+BT 0.169 0.424 0.690 rg /F2 24.00 Tf 143.36 739.50 Td (PDF) Tj ET
+BT 0.169 0.424 0.690 rg /F2 24.00 Tf 187.36 739.50 Td (Benchmark:) Tj ET
+BT 0.169 0.424 0.690 rg /F2 24.00 Tf 330.06 739.50 Td (Simple) Tj ET
+BT 0.169 0.424 0.690 rg /F2 24.00 Tf 412.76 739.50 Td (Case) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 56.70 715.30 Td (This) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 78.71 715.30 Td (is) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 90.71 715.30 Td (a) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 100.72 715.30 Td (one) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 124.07 715.30 Td (page) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 154.09 715.30 Td (document) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 210.12 715.30 Td (with) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 234.79 715.30 Td (a) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 244.80 715.30 Td (heading,) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 294.17 715.30 Td (a) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 304.18 715.30 Td (paragraph,) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 365.54 715.30 Td (a) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 375.55 715.30 Td (link) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 396.89 715.30 Td (to) Tj ET
+BT 0.702 0.176 0.176 rg /F1 12.00 Tf 410.23 715.30 Td (example.com) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 484.92 715.30 Td (,) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 491.59 715.30 Td (and) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 514.94 715.30 Td (a) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 56.70 699.10 Td (small) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 88.03 699.10 Td (table.) Tj ET
+BT 0.080 0.080 0.080 rg /F2 12.00 Tf 65.70 671.08 Td (Engine) Tj ET
+0.600 0.600 0.600 rg 56.70 659.20 0.50 27.90 re f
+BT 0.080 0.080 0.080 rg /F2 12.00 Tf 306.50 671.08 Td (Approach) Tj ET
+0.600 0.600 0.600 rg 297.50 659.20 0.50 27.90 re f
+BT 0.080 0.080 0.080 rg /F1 12.00 Tf 65.70 643.18 Td (wkhtmltopdf) Tj ET
+0.600 0.600 0.600 rg 56.70 631.30 0.50 27.90 re f
+BT 0.080 0.080 0.080 rg /F1 12.00 Tf 306.50 643.18 Td (Patched) Tj ET
+BT 0.080 0.080 0.080 rg /F1 12.00 Tf 352.53 643.18 Td (Qt) Tj ET
+BT 0.080 0.080 0.080 rg /F1 12.00 Tf 365.88 643.18 Td (WebKit) Tj ET
+0.600 0.600 0.600 rg 297.50 631.30 0.50 27.90 re f
+BT 0.080 0.080 0.080 rg /F1 12.00 Tf 65.70 615.28 Td (WeasyPrint) Tj ET
+0.600 0.600 0.600 rg 56.70 603.40 0.50 27.90 re f
+BT 0.080 0.080 0.080 rg /F1 12.00 Tf 306.50 615.28 Td (Pure) Tj ET
+BT 0.080 0.080 0.080 rg /F1 12.00 Tf 333.85 615.28 Td (Python) Tj ET
+BT 0.080 0.080 0.080 rg /F1 12.00 Tf 373.21 615.28 Td (+) Tj ET
+BT 0.080 0.080 0.080 rg /F1 12.00 Tf 383.55 615.28 Td (Pango) Tj ET
+0.600 0.600 0.600 rg 297.50 603.40 0.50 27.90 re f
+BT 0.133 0.133 0.133 rg /F2 18.00 Tf 56.70 565.70 Td (Secondary) Tj ET
+BT 0.133 0.133 0.133 rg /F2 18.00 Tf 151.74 565.70 Td (Heading) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 56.70 541.50 Td (Some) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 89.38 541.50 Td (closing) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 130.06 541.50 Td (text) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 152.74 541.50 Td (to) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 166.08 541.50 Td (fill) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 180.74 541.50 Td (the) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 200.76 541.50 Td (page) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 230.78 541.50 Td (slightly.) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 274.13 541.50 Td (Lists) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 298.13 541.50 Td (below.) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 56.70 525.30 Td (First) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 79.37 525.30 Td (item) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 105.37 525.30 Td (Second) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 147.40 525.30 Td (item) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 173.40 525.30 Td (Third) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 200.08 525.30 Td (item) Tj ET
+
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000142 00000 n 
+0000000244 00000 n 
+0000000341 00000 n 
+0000000481 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+4554
+%%EOF
