@@ -6,13 +6,35 @@
 use jhtml_css::Stylesheet;
 use jhtml_layout::layout;
 use jhtml_parse::Document;
+use jhtml_pdf::Metadata;
 
 /// Render HTML bytes into PDF bytes.
 pub fn render(html: &[u8]) -> Vec<u8> {
     let doc = Document::parse(html);
     let ss = Stylesheet::parse(&doc.style_rules());
-    let pages = layout(&doc, &ss);
-    jhtml_pdf::write_pdf(&pages, doc.title().as_deref())
+    let result = layout(&doc, &ss);
+    let author = find_meta_author(&doc);
+    jhtml_pdf::write_pdf(
+        &result.pages,
+        &result.outline,
+        &result.dests,
+        &Metadata {
+            title: doc.title(),
+            author,
+        },
+    )
+}
+
+fn find_meta_author(doc: &Document) -> Option<String> {
+    fn walk(node: &jhtml_parse::Node) -> Option<String> {
+        if node.tag() == Some("meta") && node.attr("name") == Some("author") {
+            if let Some(a) = node.attr("content") {
+                return Some(a.to_string());
+            }
+        }
+        node.children().iter().find_map(walk)
+    }
+    walk(&doc.root)
 }
 
 #[cfg(test)]

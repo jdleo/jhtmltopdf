@@ -1,13 +1,13 @@
 %PDF-1.4
 %‚„œ”
 1 0 obj
-<< /Type /Catalog /Pages 2 0 R >>
+<< /Type /Catalog /Pages 2 0 R /Outlines 9 0 R >>
 endobj
 2 0 obj
 << /Type /Pages /Kids [6 0 R] /Count 1 >>
 endobj
 3 0 obj
-<< >>
+<< /Title (Simple Benchmark) >>
 endobj
 4 0 obj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
@@ -16,10 +16,10 @@ endobj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
 endobj
 6 0 obj
-<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.0 842.0] /Resources << /Font << /F2 4 0 R /F1 5 0 R >> >> /Contents 7 0 R >>
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.0 842.0] /Resources << /Font << /F2 4 0 R /F1 5 0 R >> >> /Contents 7 0 R /Annots [8 0 R] >>
 endobj
 7 0 obj
-<< /Length 4021 >>
+<< /Length 4207 >>
 stream
 BT 0.169 0.424 0.690 rg /F2 24.00 Tf 56.70 739.50 Td (HTML) Tj ET
 BT 0.169 0.424 0.690 rg /F2 24.00 Tf 114.04 739.50 Td (to) Tj ET
@@ -76,27 +76,46 @@ BT 0.133 0.133 0.133 rg /F1 12.00 Tf 200.76 541.50 Td (page) Tj ET
 BT 0.133 0.133 0.133 rg /F1 12.00 Tf 230.78 541.50 Td (slightly.) Tj ET
 BT 0.133 0.133 0.133 rg /F1 12.00 Tf 274.13 541.50 Td (Lists) Tj ET
 BT 0.133 0.133 0.133 rg /F1 12.00 Tf 298.13 541.50 Td (below.) Tj ET
-BT 0.133 0.133 0.133 rg /F1 12.00 Tf 56.70 525.30 Td (First) Tj ET
-BT 0.133 0.133 0.133 rg /F1 12.00 Tf 79.37 525.30 Td (item) Tj ET
-BT 0.133 0.133 0.133 rg /F1 12.00 Tf 105.37 525.30 Td (Second) Tj ET
-BT 0.133 0.133 0.133 rg /F1 12.00 Tf 147.40 525.30 Td (item) Tj ET
-BT 0.133 0.133 0.133 rg /F1 12.00 Tf 173.40 525.30 Td (Third) Tj ET
-BT 0.133 0.133 0.133 rg /F1 12.00 Tf 200.08 525.30 Td (item) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 56.70 507.10 Td (?) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 66.71 507.10 Td (First) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 89.38 507.10 Td (item) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 56.70 472.70 Td (?) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 66.71 472.70 Td (Second) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 108.73 472.70 Td (item) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 56.70 438.30 Td (?) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 66.71 438.30 Td (Third) Tj ET
+BT 0.133 0.133 0.133 rg /F1 12.00 Tf 93.38 438.30 Td (item) Tj ET
 
 endstream
 endobj
+8 0 obj
+<< /Type /Annot /Subtype /Link /Rect [410.2 713.3 481.6 725.3] /Border [0 0 0] /A << /S /URI /URI (https://example.com) >> >>
+endobj
+9 0 obj
+<< /Type /Outlines /First 10 0 R /Last 11 0 R /Count 2 >>
+endobj
+10 0 obj
+<< /Title (HTML to PDF Benchmark: Simple Case) /Parent 9 0 R /Next 11 0 R /First 11 0 R /Last 11 0 R /Count 1 >>
+endobj
+11 0 obj
+<< /Title (Secondary Heading) /Parent 9 0 R /Prev 10 0 R /Dest [6 0 R /XYZ 0 842.0 0] >>
+endobj
 xref
-0 8
+0 12
 0000000000 65535 f 
 0000000015 00000 n 
-0000000064 00000 n 
-0000000121 00000 n 
-0000000142 00000 n 
-0000000244 00000 n 
-0000000341 00000 n 
-0000000481 00000 n 
+0000000080 00000 n 
+0000000137 00000 n 
+0000000184 00000 n 
+0000000286 00000 n 
+0000000383 00000 n 
+0000000539 00000 n 
+0000004798 00000 n 
+0000004939 00000 n 
+0000005012 00000 n 
+0000005141 00000 n 
 trailer
-<< /Size 8 /Root 1 0 R >>
+<< /Size 12 /Root 1 0 R >>
 startxref
-4554
+5246
 %%EOF

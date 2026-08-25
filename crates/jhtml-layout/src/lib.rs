@@ -5,7 +5,8 @@
 //! jhtml-pdf turns it 1:1 into PDF objects. The layout tree IS the PDF.
 
 use jhtml_css::{
-    parse_pt, parse_pt_rel, Break, Compound, Display, Justify, Nth, Rule, Style, Stylesheet, Width,
+    parse_pt, parse_pt_rel, Break, Compound, ContentToken, Display, Justify, Nth, Rule, Style,
+    Stylesheet, Width,
 };
 use jhtml_parse::{Document, Node};
 use jhtml_text::{measure, Font};
@@ -53,11 +54,38 @@ pub struct Page {
     pub ops: Vec<Op>,
 }
 
+/// A bookmark in the document outline (h1-h6).
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutlineItem {
+    pub level: u8,
+    pub title: String,
+    /// 1-based page index.
+    pub page: usize,
+}
+
+/// Internal destinations: anchor id -> (1-based page, y from top in pt).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Destinations {
+    pub map: HashMap<String, (usize, f32)>,
+}
+
+/// Full layout result: pages plus document furniture.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayoutResult {
+    pub pages: Vec<Page>,
+    pub outline: Vec<OutlineItem>,
+    pub dests: Destinations,
+}
+
 /// Layout a document into pages using the given stylesheet.
-pub fn layout(doc: &Document, ss: &Stylesheet) -> Vec<Page> {
+pub fn layout(doc: &Document, ss: &Stylesheet) -> LayoutResult {
     let mut engine = Engine::new(doc, ss);
     engine.run(doc);
-    engine.pages
+    LayoutResult {
+        pages: engine.pages,
+        outline: engine.outline,
+        dests: engine.dests,
+    }
 }
 
 struct Engine<'a> {
@@ -70,6 +98,8 @@ struct Engine<'a> {
     /// Loose inline content (text/inline elements outside blocks) waiting
     /// to be flushed as an anonymous block before the next block layout.
     pending: Vec<Segment>,
+    outline: Vec<OutlineItem>,
+    dests: Destinations,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -98,6 +128,8 @@ impl<'a> Engine<'a> {
             y: 0.0,
             page_idx: 0,
             pending: Vec::new(),
+            outline: Vec::new(),
+            dests: Destinations::default(),
         }
     }
 
@@ -146,6 +178,54 @@ impl<'a> Engine<'a> {
             }
         }
         self.flush_pending();
+        self.render_margin_boxes();
+    }
+
+    /// Render @page margin boxes (top-center / bottom-center) on every page.
+    fn render_margin_boxes(&mut self) {
+        let boxes: Vec<(String, Vec<ContentToken>)> = self
+            .ss
+            .page
+            .margin_boxes
+            .iter()
+            .map(|(k, v)| (k.clone(), v.content.clone()))
+            .collect();
+        if boxes.is_empty() {
+            return;
+        }
+        let n = self.pages.len();
+        let (w, h) = (self.geo.width_pt, self.geo.height_pt);
+        let (top, bottom) = (self.geo.margins[1], self.geo.margins[3]);
+        for (i, page) in self.pages.iter_mut().enumerate() {
+            for (name, tokens) in &boxes {
+                let text: String = tokens
+                    .iter()
+                    .map(|t| match t {
+                        ContentToken::Text(s) => s.clone(),
+                        ContentToken::PageNumber => (i + 1).to_string(),
+                        ContentToken::PageCount => n.to_string(),
+                    })
+                    .collect();
+                if text.is_empty() {
+                    continue;
+                }
+                let width = measure(&text, Font::Helvetica, 9.0);
+                let x = (w - width) / 2.0;
+                let y = if name.starts_with("top") {
+                    h - top / 2.0
+                } else {
+                    bottom + bottom / 2.0 - 3.0
+                };
+                page.ops.push(Op::Text {
+                    font: Font::Helvetica,
+                    size: 9.0,
+                    x,
+                    y,
+                    text,
+                    color: [0.4, 0.4, 0.4],
+                });
+            }
+        }
     }
 
     fn walk(&mut self, node: &Node, parent: &Resolved) {
@@ -160,30 +240,7 @@ impl<'a> Engine<'a> {
         if style.display == Some(Display::None) {
             return;
         }
-        let is_block = matches!(
-            tag.as_str(),
-            "p" | "div"
-                | "h1"
-                | "h2"
-                | "h3"
-                | "h4"
-                | "h5"
-                | "h6"
-                | "section"
-                | "article"
-                | "header"
-                | "footer"
-                | "table"
-                | "ul"
-                | "ol"
-                | "li"
-                | "blockquote"
-                | "figure"
-                | "figcaption"
-                | "hr"
-                | "br"
-        );
-        if is_block {
+        if is_block_tag(tag) {
             self.flush_pending();
             self.layout_block(node, &style);
             self.flush_pending();
@@ -198,6 +255,7 @@ impl<'a> Engine<'a> {
                             font: font_for(&style),
                             color: style.color.unwrap_or([0.08, 0.08, 0.08]),
                             x: 0.0,
+                            link: None,
                         });
                     }
                 } else {
@@ -217,7 +275,7 @@ impl<'a> Engine<'a> {
     }
 
     fn layout_block(&mut self, node: &Node, style: &Style) {
-        let tag = node.tag().unwrap_or("");
+        let tag = node.tag().unwrap_or("").to_string();
         // Page break directives.
         if style.page_break_before == Some(Break::Always)
             && (self.y > self.top() || self.page_idx > 0)
@@ -227,12 +285,7 @@ impl<'a> Engine<'a> {
 
         // Block margins (CSS + defaults).
         let fs = style.font_size(12.0);
-        let mut margin = style.margin.unwrap_or(default_margin(tag, fs));
-        if margin == [0.0, 0.0, 0.0, 0.0]
-            && !matches!(tag, "div" | "section" | "table" | "thead" | "tbody" | "tr")
-        {
-            margin = default_margin(tag, fs);
-        }
+        let margin = style.margin.unwrap_or(default_margin(&tag, fs));
         let padding = style.padding.unwrap_or([0.0; 4]);
         self.y += margin[0] + padding[0];
 
@@ -251,10 +304,20 @@ impl<'a> Engine<'a> {
             return;
         }
 
+        // Record anchor destination.
+        if let Some(id) = node.attr("id") {
+            self.dests
+                .map
+                .insert(id.to_string(), (self.page_idx + 1, self.y));
+        }
+
         // Table handling: rows are blocks of cells laid out horizontally.
         if tag == "table" {
             self.layout_table(node, style);
             self.y += margin[3] + padding[3];
+            if style.page_break_after == Some(Break::Always) {
+                self.page_break();
+            }
             return;
         }
 
@@ -268,11 +331,66 @@ impl<'a> Engine<'a> {
             return;
         }
 
-        // Collect inline segments from all descendants.
+        // Headings feed the outline (title from full inline text).
+        if let Some(level) = heading_level(&tag) {
+            let mut all = Vec::new();
+            let mut none = None;
+            self.collect_inline(node, style, &mut none, &mut all);
+            let title: Vec<String> = all
+                .iter()
+                .filter(|s| s.text != "\n")
+                .map(|s| s.text.clone())
+                .collect();
+            self.outline.push(OutlineItem {
+                level,
+                title: title.join(" "),
+                page: self.page_idx + 1,
+            });
+        }
+
+        // Walk children: accumulate inline runs, recurse into nested blocks.
         let mut segments: Vec<Segment> = Vec::new();
-        self.collect_inline(node, style, &mut segments);
-        // <br> forces breaks: represented as empty segment marker.
-        self.wrap_and_emit(&segments, style, node_anchor(node));
+        if tag == "li" {
+            segments.push(Segment {
+                text: "\u{2022}".into(),
+                size: style.font_size(12.0),
+                font: font_for(style),
+                color: style.color.unwrap_or([0.08, 0.08, 0.08]),
+                x: 0.0,
+                link: None,
+            });
+        }
+        for c in node.children() {
+            match c {
+                Node::Text(t) => {
+                    for word in t.split_whitespace() {
+                        segments.push(Segment {
+                            text: word.to_string(),
+                            size: style.font_size(12.0),
+                            font: font_for(style),
+                            color: style.color.unwrap_or([0.08, 0.08, 0.08]),
+                            x: 0.0,
+                            link: None,
+                        });
+                    }
+                }
+                Node::Element { .. } => {
+                    let ct = c.tag().unwrap_or("");
+                    if is_block_tag(ct) {
+                        self.wrap_and_emit(&segments, style, None);
+                        segments = Vec::new();
+                        self.walk(c, &Resolved::inherited(&Resolved::default(), style.clone()));
+                    } else {
+                        let child_style = self
+                            .resolve(c, &Resolved::inherited(&Resolved::default(), style.clone()));
+                        let mut child_href = c.attr("href").map(str::to_string);
+                        self.collect_inline(c, &child_style, &mut child_href, &mut segments);
+                    }
+                }
+                Node::Ignored => {}
+            }
+        }
+        self.wrap_and_emit(&segments, style, None);
 
         self.y += margin[3] + padding[3];
 
@@ -280,9 +398,6 @@ impl<'a> Engine<'a> {
             self.page_break();
         }
     }
-
-    /// Flex row: place children horizontally, honoring justify-content,
-    /// gap, declared widths, and each child's text-align.
     fn layout_flex_row(&mut self, node: &Node, style: &Style) {
         let content_w = self.content_width();
         let children: Vec<&Node> = node
@@ -299,7 +414,7 @@ impl<'a> Engine<'a> {
         for c in &children {
             let cs = self.resolve(c, &Resolved::root());
             let mut segs = Vec::new();
-            self.collect_inline(c, &cs, &mut segs);
+            self.collect_inline(c, &cs, &mut None, &mut segs);
             let w = match cs.width {
                 Some(Width::Pt(w)) => w,
                 Some(Width::Pct(p)) => content_w * p / 100.0,
@@ -386,7 +501,7 @@ impl<'a> Engine<'a> {
                     &Resolved::inherited(&Resolved::root(), row_style.clone()),
                 );
                 let mut segs = Vec::new();
-                self.collect_inline(cell, &cell_style, &mut segs);
+                self.collect_inline(cell, &cell_style, &mut None, &mut segs);
                 let lines = self.wrap_segments(
                     &segs,
                     col_w - 8.0,
@@ -505,7 +620,13 @@ impl<'a> Engine<'a> {
     }
 
     /// Gather inline words (and <br> markers) from a subtree.
-    fn collect_inline(&self, node: &Node, style: &Style, out: &mut Vec<Segment>) {
+    fn collect_inline(
+        &self,
+        node: &Node,
+        style: &Style,
+        href: &mut Option<String>,
+        out: &mut Vec<Segment>,
+    ) {
         let tag = node.tag().unwrap_or("");
         if tag == "br" {
             out.push(Segment {
@@ -531,6 +652,7 @@ impl<'a> Engine<'a> {
                             font: font_for(style),
                             color: style.color.unwrap_or([0.08, 0.08, 0.08]),
                             x: 0.0,
+                            link: href.clone(),
                         });
                     } else {
                         for word in t.split_whitespace() {
@@ -540,6 +662,7 @@ impl<'a> Engine<'a> {
                                 font: font_for(style),
                                 color: style.color.unwrap_or([0.08, 0.08, 0.08]),
                                 x: 0.0,
+                                link: href.clone(),
                             });
                         }
                     }
@@ -547,7 +670,10 @@ impl<'a> Engine<'a> {
                 Node::Element { .. } => {
                     let child_style =
                         self.resolve(c, &Resolved::inherited(&Resolved::default(), style.clone()));
-                    self.collect_inline(c, &child_style, out);
+                    let mut child_href =
+                        c.attr("href").map(str::to_string).or_else(|| href.clone());
+                    self.collect_inline(c, &child_style, &mut child_href, out);
+                    *href = child_href;
                 }
                 Node::Ignored => {}
             }
@@ -589,6 +715,20 @@ impl<'a> Engine<'a> {
                     text: seg.text.clone(),
                     color: seg.color,
                 });
+                if let Some(href) = &seg.link {
+                    let target = if let Some(name) = href.strip_prefix('#') {
+                        Target::Dest(name.to_string())
+                    } else {
+                        Target::Url(href.clone())
+                    };
+                    self.push_op(Op::Link {
+                        x: x0 + seg.x,
+                        y: baseline - 2.0,
+                        w: measure(&seg.text, seg.font(), seg.size),
+                        h: seg.size,
+                        target,
+                    });
+                }
             }
         }
     }
@@ -996,6 +1136,8 @@ struct Segment {
     font: Font,
     color: [f32; 3],
     x: f32,
+    /// href when this word came from an <a> element.
+    link: Option<String>,
 }
 
 impl Default for Segment {
@@ -1006,6 +1148,7 @@ impl Default for Segment {
             font: Font::Helvetica,
             color: [0.0; 3],
             x: 0.0,
+            link: None,
         }
     }
 }
@@ -1016,8 +1159,42 @@ impl Segment {
     }
 }
 
-fn node_anchor(node: &Node) -> Option<&str> {
-    node.attr("id")
+fn is_block_tag(tag: &str) -> bool {
+    matches!(
+        tag,
+        "p" | "div"
+            | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
+            | "section"
+            | "article"
+            | "header"
+            | "footer"
+            | "table"
+            | "ul"
+            | "ol"
+            | "li"
+            | "blockquote"
+            | "figure"
+            | "figcaption"
+            | "hr"
+            | "br"
+    )
+}
+
+fn heading_level(tag: &str) -> Option<u8> {
+    match tag {
+        "h1" => Some(1),
+        "h2" => Some(2),
+        "h3" => Some(3),
+        "h4" => Some(4),
+        "h5" => Some(5),
+        "h6" => Some(6),
+        _ => None,
+    }
 }
 
 fn pdf_y(y_from_top: f32, page_h: f32, h: f32) -> f32 {
@@ -1106,7 +1283,7 @@ mod m2_tests {
     fn render_ops(html: &str) -> Vec<Op> {
         let doc = Document::parse(html.as_bytes());
         let ss = Stylesheet::parse(&doc.style_rules());
-        layout(&doc, &ss)[0].ops.clone()
+        layout(&doc, &ss).pages[0].ops.clone()
     }
 
     #[test]

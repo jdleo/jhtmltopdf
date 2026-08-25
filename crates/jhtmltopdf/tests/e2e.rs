@@ -35,3 +35,28 @@ fn case1_title_lands_in_output() {
     let s = String::from_utf8_lossy(&pdf);
     assert!(s.contains("(Simple)") && s.contains("(Benchmark:)") && s.contains("(HTML)"));
 }
+
+#[test]
+fn case3_paged_media_furniture() {
+    let html = include_str!("../benches/cases/case3_complex.html");
+    let pdf = render(html.as_bytes());
+    let s = String::from_utf8_lossy(&pdf);
+    // Page counter footers on every page.
+    assert!(s.contains("Page 1 of 121"), "missing footer page 1");
+    assert!(s.contains("Page 121 of 121"), "missing footer page 121");
+    // Outline: h1 + 60 section headings.
+    assert!(s.contains("/Type /Outlines"));
+    assert!(s.contains("/Title (Financial Data Compendium)"));
+    // Internal link annotations resolve to destinations.
+    assert!(s.contains("/Dest ["), "no internal links");
+    // Running title in top margin box.
+    assert!(s.contains("Financial Data Compendium") == true);
+}
+
+#[test]
+fn case1_external_links_annotated() {
+    let html = include_str!("../benches/cases/case1_simple.html");
+    let pdf = render(html.as_bytes());
+    let s = String::from_utf8_lossy(&pdf);
+    assert!(s.contains("/URI (https://example.com)"));
+}
