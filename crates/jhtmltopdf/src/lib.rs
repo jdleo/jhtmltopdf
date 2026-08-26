@@ -4,15 +4,63 @@
 //! this facade threads them together. See SPEC.md in the repo root.
 
 use jhtml_css::Stylesheet;
-use jhtml_layout::layout;
+use jhtml_layout::layout_scaled;
 use jhtml_parse::Document;
 use jhtml_pdf::Metadata;
 
-/// Render HTML bytes into PDF bytes.
+/// Render options.
+#[derive(Debug, Clone, Copy)]
+pub struct Options {
+    /// Screen viewport width in CSS pixels the document was designed for.
+    /// When set, the render is scaled from that viewport down to the paper
+    /// width (wkhtmltopdf-style shrink-to-fit). None = render at paper size.
+    pub viewport_px: Option<f32>,
+    /// Paper size: ("a4", 595, 842) or ("letter", 612, 792) in pt.
+    pub page_size: Option<(&'static str, f32, f32)>,
+    /// Page margin in mm (all sides), used when the CSS has no @page rule.
+    pub margin_mm: Option<f32>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            viewport_px: None,
+            page_size: None,
+            margin_mm: None,
+        }
+    }
+}
+
+/// Render HTML bytes into PDF bytes with default options.
 pub fn render(html: &[u8]) -> Vec<u8> {
+    render_with(html, Options::default())
+}
+
+/// Render HTML bytes into PDF bytes with explicit options.
+pub fn render_with(html: &[u8], opts: Options) -> Vec<u8> {
     let doc = Document::parse(html);
     let ss = Stylesheet::parse(&doc.style_rules());
-    let result = layout(&doc, &ss);
+    let mut ss = ss;
+    let mut phys_w = 595.0f32;
+    let mut phys_h = 842.0f32;
+    let mut margin = 28.35f32;
+    if let Some((_, w, h)) = opts.page_size {
+        ss.page.width_pt = Some(w);
+        ss.page.height_pt = Some(h);
+        phys_w = w;
+        phys_h = h;
+    }
+    if let Some(mm) = opts.margin_mm {
+        let m = mm * 72.0 / 25.4;
+        ss.page.margins_pt = Some([m; 4]);
+        margin = m;
+    }
+    let phys_content = phys_w - 2.0 * margin;
+    let scale = opts
+        .viewport_px
+        .map(|vp| phys_content / (vp * 0.75))
+        .unwrap_or(1.0);
+    let result = layout_scaled(&doc, &ss, scale);
     let author = find_meta_author(&doc);
     jhtml_pdf::write_pdf(
         &result.pages,

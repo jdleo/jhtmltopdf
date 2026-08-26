@@ -285,6 +285,11 @@ pub fn pdf_string(s: &str) -> String {
             '(' => out.push_str("\\("),
             ')' => out.push_str("\\)"),
             c if ((c as u32) < 128 && c.is_ascii_graphic()) || c == ' ' => out.push(c),
+            '\u{2022}' => out.push('\u{95}'),
+            '\u{2013}' => out.push('\u{96}'),
+            '\u{2014}' => out.push('\u{97}'),
+            '\u{2018}' | '\u{2019}' => out.push('\u{27}'),
+            '\u{201C}' | '\u{201D}' => out.push('\u{22}'),
             c if (c as u32) < 256 => out.push(c as u8 as char),
             _ => out.push('?'),
         }

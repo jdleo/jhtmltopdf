@@ -79,12 +79,57 @@ pub struct LayoutResult {
 
 /// Layout a document into pages using the given stylesheet.
 pub fn layout(doc: &Document, ss: &Stylesheet) -> LayoutResult {
+    layout_scaled(doc, ss, 1.0)
+}
+
+/// Layout with a scale factor < 1.0: the document is laid out on a
+/// proportionally larger virtual page (screen viewport semantics) and
+/// scaled down to the physical page, reproducing wkhtmltopdf-style
+/// shrink-to-fit for documents designed against a wide viewport.
+pub fn layout_scaled(doc: &Document, ss: &Stylesheet, scale: f32) -> LayoutResult {
     let mut engine = Engine::new(doc, ss);
+    if scale != 1.0 {
+        engine.geo.width_pt /= scale;
+        engine.geo.height_pt /= scale;
+        engine.geo.margins = engine.geo.margins.map(|m| m / scale);
+        engine.pages[0].width_pt = engine.geo.width_pt;
+        engine.pages[0].height_pt = engine.geo.height_pt;
+    }
     engine.run(doc);
-    LayoutResult {
+    let mut r = LayoutResult {
         pages: engine.pages,
         outline: engine.outline,
         dests: engine.dests,
+    };
+    if scale != 1.0 {
+        let k = scale;
+        for page in &mut r.pages {
+            page.width_pt *= k;
+            page.height_pt *= k;
+            scale_ops(&mut page.ops, k);
+        }
+        for (_, (_, y)) in r.dests.map.iter_mut() {
+            *y *= k;
+        }
+    }
+    r
+}
+
+fn scale_ops(ops: &mut [Op], k: f32) {
+    for op in ops.iter_mut() {
+        match op {
+            Op::Text { x, y, size, .. } => {
+                *x *= k;
+                *y *= k;
+                *size *= k;
+            }
+            Op::Rect { x, y, w, h, .. } | Op::Link { x, y, w, h, .. } => {
+                *x *= k;
+                *y *= k;
+                *w *= k;
+                *h *= k;
+            }
+        }
     }
 }
 
@@ -433,7 +478,16 @@ impl<'a> Engine<'a> {
         }
 
         let n = child_data.len();
-        let total: f32 = child_data.iter().map(|(_, w, _)| *w).sum();
+        let mut total: f32 = child_data.iter().map(|(_, w, _)| *w).sum();
+        // Columns wider than the row: shrink them proportionally so
+        // space-between never produces negative gaps or overlaps.
+        if total > content_w && total > 0.0 {
+            let k = content_w / total;
+            for (_, w, _) in child_data.iter_mut() {
+                *w *= k;
+            }
+            total = content_w;
+        }
         let gap = match (style.justify, style.gap_pt) {
             (Some(Justify::SpaceBetween), _) if n > 1 => (content_w - total) / (n - 1) as f32,
             (_, g) => g.unwrap_or(0.0),
@@ -444,7 +498,7 @@ impl<'a> Engine<'a> {
         let mut max_h = 0.0f32;
         for (cs, w, segs) in &child_data {
             let fs = cs.font_size(12.0);
-            let lh = cs.line_height.unwrap_or(1.35) * fs;
+            let lh = cs.line_height.unwrap_or(1.15) * fs;
             let lines = self.wrap_segments(segs, *w, lh);
             let mut ly = start_y;
             for line in &lines {
@@ -505,10 +559,10 @@ impl<'a> Engine<'a> {
                 let lines = self.wrap_segments(
                     &segs,
                     col_w - 8.0,
-                    cell_style.line_height.unwrap_or(1.2) * cell_style.font_size(row_fs),
+                    cell_style.line_height.unwrap_or(1.15) * cell_style.font_size(row_fs),
                 );
                 let h = lines.len() as f32
-                    * cell_style.line_height.unwrap_or(1.2)
+                    * cell_style.line_height.unwrap_or(1.15)
                     * cell_style.font_size(row_fs)
                     + cell_style.padding.map(|p| p[0] + p[3]).unwrap_or(6.0);
                 max_h = max_h.max(h);
@@ -543,7 +597,7 @@ impl<'a> Engine<'a> {
                     &Resolved::inherited(&Resolved::root(), row_style.clone()),
                 );
                 let pad = cell_style.padding.unwrap_or([3.0, 8.0, 3.0, 8.0]);
-                let lh = cell_style.line_height.unwrap_or(1.2) * cell_style.font_size(row_fs);
+                let lh = cell_style.line_height.unwrap_or(1.15) * cell_style.font_size(row_fs);
                 let mut ty = self.y + pad[0] + lh * 0.8;
                 for line in lines {
                     for seg in line {
@@ -684,7 +738,7 @@ impl<'a> Engine<'a> {
     fn wrap_and_emit(&mut self, segments: &[Segment], style: &Style, _anchor: Option<&str>) {
         let width = self.content_width();
         let fs = style.font_size(12.0);
-        let lh = style.line_height.unwrap_or(1.35) * fs;
+        let lh = style.line_height.unwrap_or(1.15) * fs;
         let lines = self.wrap_segments(segments, width, lh);
         let align = style.text_align.unwrap_or(jhtml_css::Align::Left);
         self.ensure(lines.len() as f32 * lh);
@@ -1104,7 +1158,6 @@ fn default_style(tag: &str) -> Style {
             s.margin = Some([12.0, 0.0, 12.0, 0.0]);
         }
         "p" => s.margin = Some([8.0, 0.0, 8.0, 0.0]),
-        "li" => s.margin = Some([2.0, 0.0, 2.0, 0.0]),
         "blockquote" => {
             s.margin = Some([8.0, 24.0, 8.0, 24.0]);
             s.italic = Some(true);
@@ -1123,7 +1176,6 @@ fn default_margin(tag: &str, fs: f32) -> [f32; 4] {
     match tag {
         "p" => [fs * 0.7, 0.0, fs * 0.7, 0.0],
         "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => [fs * 0.6, 0.0, fs * 0.4, 0.0],
-        "li" => [2.0, 0.0, 2.0, 0.0],
         _ => [0.0; 4],
     }
 }
@@ -1157,6 +1209,29 @@ impl Segment {
     fn font(&self) -> Font {
         self.font
     }
+}
+
+/// Widest declared CSS width (pt) in a subtree, for flex children that
+/// delegate their size to an inner wrapper div.
+fn descendant_width(node: &Node) -> Option<f32> {
+    fn walk(n: &Node) -> Option<f32> {
+        let mut best: Option<f32> = None;
+        if let Some(style_width) = n.attr("style") {
+            let decls = jhtml_css::parse_decls(style_width);
+            if let Some(w) = decls.get("width") {
+                if let Some(pt) = parse_pt_rel(w, 12.0) {
+                    best = Some(best.unwrap_or(0.0).max(pt));
+                }
+            }
+        }
+        for c in n.children() {
+            if let Some(w) = walk(c) {
+                best = Some(best.unwrap_or(0.0).max(w));
+            }
+        }
+        best
+    }
+    walk(node)
 }
 
 fn is_block_tag(tag: &str) -> bool {
