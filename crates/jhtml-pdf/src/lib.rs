@@ -6,6 +6,7 @@
 
 use jhtml_layout::{Destinations, Op, OutlineItem, Page, Target};
 use jhtml_text::Font;
+use rayon::prelude::*;
 use std::collections::HashMap;
 
 /// Document metadata.
@@ -50,12 +51,16 @@ pub fn write_pdf(
     // Pages, content streams, link annotations.
     let mut page_ids = Vec::new();
     let mut annot_meta: Vec<Vec<(u32, Target, [f32; 4])>> = Vec::new(); // per page: (annot id, target, rect)
-    for page in pages {
+                                                                        // Content streams are independent per page: generate in parallel.
+    let streams: Vec<String> = pages
+        .par_iter()
+        .map(|page| content_stream(&page.ops))
+        .collect();
+    for (page, stream) in pages.iter().zip(streams) {
         let page_id = objects.len() as u32 + 1;
         page_ids.push(page_id);
         objects.push(String::new()); // placeholder for page object
 
-        let stream = content_stream(&page.ops);
         objects.push(format!(
             "<< /Length {} >>\nstream\n{stream}\nendstream",
             stream.len()
