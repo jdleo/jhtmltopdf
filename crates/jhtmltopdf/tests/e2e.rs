@@ -33,7 +33,11 @@ fn all_benchmark_cases_produce_valid_pdfs() {
 fn case1_title_lands_in_output() {
     let pdf = render(include_str!("../benches/cases/case1_simple.html").as_bytes());
     let s = String::from_utf8_lossy(&pdf);
-    assert!(s.contains("(Simple)") && s.contains("(Benchmark:)") && s.contains("(HTML)"));
+    // Real fonts: TTF embedded as CID/Identity-H with a ToUnicode map.
+    assert!(s.contains("/Subtype /Type0"), "no Type0 font");
+    assert!(s.contains("/Identity-H"), "no Identity-H encoding");
+    assert!(s.contains("/FontFile2"), "no embedded font file");
+    assert!(s.contains("/ToUnicode"), "no ToUnicode map");
 }
 
 #[test]
@@ -59,4 +63,17 @@ fn case1_external_links_annotated() {
     let pdf = render(html.as_bytes());
     let s = String::from_utf8_lossy(&pdf);
     assert!(s.contains("/URI (https://example.com)"));
+}
+
+#[test]
+fn compute_only_js_feeds_placeholders() {
+    let html = r#"<html><body>
+        <script>data.set('total', String(3 * 4));</script>
+        <p>Total due: {{total}} dollars</p>
+    </body></html>"#;
+    let pdf = render(html.as_bytes());
+    let s = String::from_utf8_lossy(&pdf);
+    // Values flow into the doc; the placeholder must be gone.
+    assert!(s.contains("(12)"), "computed value not injected");
+    assert!(!s.contains("{{total}}"), "placeholder leaked into output");
 }

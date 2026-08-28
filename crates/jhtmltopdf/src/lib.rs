@@ -28,7 +28,19 @@ pub fn render(html: &[u8]) -> Vec<u8> {
 
 /// Render HTML bytes into PDF bytes with explicit options.
 pub fn render_with(html: &[u8], opts: Options) -> Vec<u8> {
-    let doc = Document::parse(html);
+    let mut doc = Document::parse(html);
+
+    // Compute-only JS: run scripts, then inject `{{key}}` values.
+    let scripts = collect_scripts(&doc);
+    let data = if scripts.is_empty() {
+        Default::default()
+    } else {
+        jhtml_js::run_scripts(&scripts).unwrap_or_default().data
+    };
+    if !data.is_empty() {
+        substitute_texts(&mut doc, &data);
+    }
+
     let ss = Stylesheet::parse(&doc.style_rules());
     let mut ss = ss;
     let mut phys_w = 595.0f32;
@@ -62,6 +74,40 @@ pub fn render_with(html: &[u8], opts: Options) -> Vec<u8> {
         &fonts,
     )
 }
+
+fn collect_scripts(doc: &Document) -> Vec<String> {
+    fn walk(node: &jhtml_parse::Node, out: &mut Vec<String>) {
+        if node.tag() == Some("script") && node.attr("src").is_none() {
+            let code = node.direct_text();
+            if !code.trim().is_empty() {
+                out.push(code);
+            }
+        }
+        for c in node.children() {
+            walk(c, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(&doc.root, &mut out);
+    out
+}
+
+fn substitute_texts(doc: &mut Document, data: &HashMap<String, String>) {
+    fn walk(node: &mut jhtml_parse::Node, data: &HashMap<String, String>) {
+        match node {
+            jhtml_parse::Node::Text(t) => *t = jhtml_js::substitute(t, data),
+            jhtml_parse::Node::Element { children, .. } => {
+                for c in children {
+                    walk(c, data);
+                }
+            }
+            jhtml_parse::Node::Ignored => {}
+        }
+    }
+    walk(&mut doc.root, data);
+}
+
+use std::collections::HashMap;
 
 fn find_meta_author(doc: &Document) -> Option<String> {
     fn walk(node: &jhtml_parse::Node) -> Option<String> {

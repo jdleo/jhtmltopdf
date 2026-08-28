@@ -7,3 +7,4 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+boa_engine = "0.22.0"
