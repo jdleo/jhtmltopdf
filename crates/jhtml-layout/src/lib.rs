@@ -463,7 +463,7 @@ impl<'a> Engine<'a> {
             let w = match cs.width {
                 Some(Width::Pt(w)) => w,
                 Some(Width::Pct(p)) => content_w * p / 100.0,
-                None => {
+                None => descendant_width(c).unwrap_or_else(|| {
                     // Natural single-line width of the child's content.
                     let mut nat = 0.0f32;
                     for s in &segs {
@@ -472,7 +472,7 @@ impl<'a> Engine<'a> {
                     nat += segs.len().saturating_sub(1) as f32
                         * measure(" ", Font::Helvetica, cs.font_size(12.0));
                     nat.max(1.0)
-                }
+                }),
             };
             child_data.push((cs, w.min(content_w), segs));
         }
