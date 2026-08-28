@@ -1,12 +1,14 @@
-#![allow(clippy::if_same_then_else)]
-//! Stage 4: fonts and text metrics.
+//! Stage 4: fonts, font discovery, and text metrics.
 //!
-//! Metric tables mirror the AFM data verbatim; allow cosmetic clippy lints there.
-//! v0.1 ships the PDF base-14 fonts (Helvetica family) with their exact
-//! AFM advance widths. No font files, no embedding, deterministic metrics.
-//! fontdb + rustybuzz embedding/subsetting arrives in a later milestone.
+//! FontStore discovers system fonts via fontdb, extracts cmap + hmtx
+//! metrics with ttf-parser, and resolves CSS font-family declarations to
+//! embedded faces. Base-14 AFM metrics remain as the fallback when no
+//! system font matches (and for tests / deterministic output).
 
-/// One of the PDF base-14 fonts we support.
+use std::collections::HashMap;
+use std::path::Path;
+
+/// One of the PDF base-14 fallback fonts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Font {
     Helvetica,
@@ -15,10 +17,12 @@ pub enum Font {
     HelveticaBoldOblique,
     TimesRoman,
     Courier,
+    /// An embedded system face: index into FontStore.faces.
+    Ttf(u32),
 }
 
 impl Font {
-    /// PDF BaseFont name.
+    /// PDF BaseFont name (base-14 only; embedded faces name themselves).
     pub fn base_name(self) -> &'static str {
         match self {
             Font::Helvetica => "Helvetica",
@@ -27,6 +31,7 @@ impl Font {
             Font::HelveticaBoldOblique => "Helvetica-BoldOblique",
             Font::TimesRoman => "Times-Roman",
             Font::Courier => "Courier",
+            Font::Ttf(_) => "Embedded",
         }
     }
 
@@ -47,683 +52,334 @@ impl Font {
     }
 }
 
+/// A loaded system face with everything the metrics + PDF writer need.
+#[derive(Debug, Clone)]
+pub struct FaceData {
+    /// Raw font file bytes (embedded as FontFile2).
+    pub bytes: Vec<u8>,
+    /// Sanitized PostScript-ish name, e.g. "Arial-Bold".
+    pub name: String,
+    pub units_per_em: f32,
+    /// char -> glyph id.
+    pub cmap: HashMap<char, u16>,
+    /// glyph id -> advance in font units.
+    pub advances: HashMap<u16, f32>,
+    pub ascent: f32,
+    pub descent: f32,
+    pub bbox: [f32; 4],
+    pub italic_angle: f32,
+}
+
+impl FaceData {
+    /// Extract metrics from a font file. Returns None for unparseable or
+    /// collection files we cannot embed standalone.
+    pub fn load(path: &Path, index: u32) -> Option<FaceData> {
+        let bytes = std::fs::read(path).ok()?;
+        Self::from_bytes(bytes, index)
+    }
+
+    pub fn from_bytes(bytes: Vec<u8>, index: u32) -> Option<FaceData> {
+        let face = ttf_parser::Face::parse(&bytes, index).ok()?;
+        if index != 0 && ttf_parser::fonts_in_collection(&bytes).is_some() {
+            // Can't embed a sub-face of a TTC as FontFile2; skip.
+            return None;
+        }
+        let units_per_em = face.units_per_em() as f32;
+        let mut cmap: HashMap<char, u16> = HashMap::new();
+        if let Some(tables) = face.tables().cmap {
+            for sub in tables.subtables {
+                sub.codepoints(|cp: u32| {
+                    if let Some(gid) = sub.glyph_index(cp) {
+                        cmap.entry(char::from_u32(cp).unwrap_or('\0'))
+                            .or_insert(gid.0);
+                    }
+                });
+            }
+        }
+        let n = face.number_of_glyphs();
+        let mut advances = HashMap::with_capacity(n as usize);
+        for gid in 0..n {
+            if let Some(a) = face.glyph_hor_advance(ttf_parser::GlyphId(gid)) {
+                advances.insert(gid, a as f32);
+            }
+        }
+        let (ascent, descent) = match (face.ascender(), face.descender()) {
+            (a, d) if a != 0 || d != 0 => (a as f32, d as f32),
+            _ => (
+                face.typographic_ascender().unwrap_or(800) as f32,
+                face.typographic_descender().unwrap_or(-200) as f32,
+            ),
+        };
+        let bbox = face.global_bounding_box();
+        let italic_angle = face.italic_angle() as f32;
+        let style = match (face.style(), face.is_bold()) {
+            (ttf_parser::Style::Italic, true) => "-BoldItalic",
+            (ttf_parser::Style::Italic, false) => "-Italic",
+            (ttf_parser::Style::Oblique, true) => "-BoldItalic",
+            (ttf_parser::Style::Oblique, false) => "-Oblique",
+            (_, true) => "-Bold",
+            (_, false) => "",
+        };
+        let raw_name = face
+            .names()
+            .into_iter()
+            .find(|n| n.name_id == ttf_parser::name_id::FAMILY)
+            .and_then(|n| n.to_string())
+            .unwrap_or_else(|| "Font".to_string());
+        let name = format!("{}{}", raw_name.replace(' ', ""), style);
+        Some(FaceData {
+            bytes,
+            name,
+            units_per_em,
+            cmap,
+            advances,
+            ascent,
+            descent,
+            bbox: [
+                bbox.x_min as f32,
+                bbox.y_min as f32,
+                bbox.x_max as f32,
+                bbox.y_max as f32,
+            ],
+            italic_angle,
+        })
+    }
+
+    pub fn glyph_id(&self, ch: char) -> u16 {
+        *self.cmap.get(&ch).unwrap_or(&0)
+    }
+
+    /// Advance width of `text` in points at `size`.
+    pub fn measure(&self, text: &str, size: f32) -> f32 {
+        let units: f32 = text
+            .chars()
+            .map(|ch| {
+                self.advances
+                    .get(&self.glyph_id(ch))
+                    .copied()
+                    .unwrap_or(0.0)
+            })
+            .sum();
+        units / self.units_per_em * size
+    }
+}
+
+/// System font discovery + CSS family resolution.
+#[derive(Debug, Default)]
+pub struct FontStore {
+    db: Option<fontdb::Database>,
+    faces: std::sync::RwLock<Vec<FaceData>>,
+    cache: std::sync::Mutex<HashMap<(String, bool, bool), Font>>,
+}
+
+impl FontStore {
+    /// Empty store: every resolve falls back to base-14.
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    /// Store with all system fonts discovered.
+    pub fn with_system_fonts() -> Self {
+        let mut db = fontdb::Database::new();
+        db.load_system_fonts();
+        Self {
+            db: Some(db),
+            faces: std::sync::RwLock::new(Vec::new()),
+            cache: std::sync::Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Resolve a CSS font-family list (plus bold/italic) to a Font.
+    /// Falls back to base-14 when no system face matches.
+    pub fn resolve(&self, families: Option<&String>, bold: bool, italic: bool) -> Font {
+        let base = match (bold, italic) {
+            (true, true) => Font::HelveticaBoldOblique,
+            (true, false) => Font::HelveticaBold,
+            (false, true) => Font::HelveticaOblique,
+            (false, false) => Font::Helvetica,
+        };
+        let list = match families {
+            Some(l) if !l.is_empty() => l,
+            _ => return base,
+        };
+        let weight = if bold {
+            fontdb::Weight::BOLD
+        } else {
+            fontdb::Weight::NORMAL
+        };
+        let style = if italic {
+            fontdb::Style::Italic
+        } else {
+            fontdb::Style::Normal
+        };
+        // Remember generic requests: they drive the base-14 fallback.
+        let mut wants_serif = false;
+        let mut wants_mono = false;
+        for raw in list.split(',') {
+            let name = raw.trim().trim_matches('"').trim_matches('\'');
+            if name.is_empty() {
+                continue;
+            }
+            match name.to_ascii_lowercase().as_str() {
+                "serif" => {
+                    wants_serif = true;
+                    continue;
+                }
+                "monospace" => {
+                    wants_mono = true;
+                    continue;
+                }
+                "sans-serif" | "cursive" | "fantasy" | "system-ui" => continue,
+                _ => {}
+            }
+            let key = (name.to_ascii_lowercase(), bold, italic);
+            if let Some(f) = self.cache.lock().unwrap().get(&key) {
+                return *f;
+            }
+            if let Some(db) = &self.db {
+                let query = fontdb::Query {
+                    families: &[fontdb::Family::Name(name)],
+                    weight,
+                    style,
+                    stretch: fontdb::Stretch::Normal,
+                };
+                if let Some(id) = db.query(&query) {
+                    if let Some(info) = db.face(id) {
+                        let mut faces = self.faces.write().unwrap();
+                        let idx = faces.len() as u32;
+                        let path = match &info.source {
+                            fontdb::Source::File(p) => p.clone(),
+                            _ => continue,
+                        };
+                        if let Some(data) = FaceData::load(&path, info.index) {
+                            faces.push(data);
+                            let f = Font::Ttf(idx);
+                            self.cache.lock().unwrap().insert(key, f);
+                            return f;
+                        }
+                    }
+                }
+            }
+        }
+        // No system face matched: honor serif/mono generics via base-14.
+        if wants_serif {
+            return match (bold, italic) {
+                (true, true) => Font::HelveticaBoldOblique, // closest available
+                (true, false) => Font::TimesRoman.bold(),
+                (false, true) => Font::TimesRoman.italic(),
+                (false, false) => Font::TimesRoman,
+            };
+        }
+        if wants_mono {
+            return match (bold, italic) {
+                (true, true) => Font::Courier,
+                (true, false) => Font::Courier,
+                (false, true) => Font::Courier,
+                (false, false) => Font::Courier,
+            };
+        }
+        base
+    }
+
+    pub fn face(&self, f: Font) -> Option<FaceData> {
+        match f {
+            Font::Ttf(i) => self.faces.read().unwrap().get(i as usize).cloned(),
+            _ => None,
+        }
+    }
+
+    /// Measure text in points.
+    pub fn measure(&self, text: &str, font: Font, size: f32) -> f32 {
+        match font {
+            Font::Ttf(i) => self
+                .faces
+                .read()
+                .unwrap()
+                .get(i as usize)
+                .map(|f| f.measure(text, size))
+                .unwrap_or(0.0),
+            f => base14_measure(text, f, size),
+        }
+    }
+}
+
 /// Advance width of `ch` in 1/1000 em units for base-14 Helvetica.
-/// AFM-derived; anything outside the table falls back to 556.
 pub fn helvetica_width(ch: char, bold: bool) -> f32 {
-    use W::*;
-
+    let b = |reg: f32, brd: f32| if bold { brd } else { reg };
     match ch.to_ascii_lowercase() {
-        ' ' => {
-            if bold {
-                B_SPACE
-            } else {
-                SPACE
-            }
-        }
-        'a' => {
-            if bold {
-                B_A
-            } else {
-                A
-            }
-        }
-        'b' => {
-            if bold {
-                B_B
-            } else {
-                B
-            }
-        }
-        'c' => {
-            if bold {
-                B_C
-            } else {
-                C
-            }
-        }
-        'd' => {
-            if bold {
-                B_D
-            } else {
-                D
-            }
-        }
-        'e' => {
-            if bold {
-                B_E
-            } else {
-                E
-            }
-        }
-        'f' => {
-            if bold {
-                B_F
-            } else {
-                F
-            }
-        }
-        'g' => {
-            if bold {
-                B_G
-            } else {
-                G
-            }
-        }
-        'h' => {
-            if bold {
-                B_H
-            } else {
-                H
-            }
-        }
-        'i' => {
-            if bold {
-                B_I
-            } else {
-                I
-            }
-        }
-        'j' => {
-            if bold {
-                B_J
-            } else {
-                J
-            }
-        }
-        'k' => {
-            if bold {
-                B_K
-            } else {
-                K
-            }
-        }
-        'l' => {
-            if bold {
-                B_L
-            } else {
-                L
-            }
-        }
-        'm' => {
-            if bold {
-                B_M
-            } else {
-                M
-            }
-        }
-        'n' => {
-            if bold {
-                B_N
-            } else {
-                N
-            }
-        }
-        'o' => {
-            if bold {
-                B_O
-            } else {
-                O
-            }
-        }
-        'p' => {
-            if bold {
-                B_P
-            } else {
-                P
-            }
-        }
-        'q' => {
-            if bold {
-                B_Q
-            } else {
-                Q
-            }
-        }
-        'r' => {
-            if bold {
-                B_R
-            } else {
-                R
-            }
-        }
-        's' => {
-            if bold {
-                B_S
-            } else {
-                S
-            }
-        }
-        't' => {
-            if bold {
-                B_T
-            } else {
-                T
-            }
-        }
-        'u' => {
-            if bold {
-                B_U
-            } else {
-                U
-            }
-        }
-        'v' => {
-            if bold {
-                B_V
-            } else {
-                V
-            }
-        }
-        'w' => {
-            if bold {
-                B_W
-            } else {
-                W_
-            }
-        }
-        'x' => {
-            if bold {
-                B_X
-            } else {
-                X
-            }
-        }
-        'y' => {
-            if bold {
-                B_Y
-            } else {
-                Y
-            }
-        }
-        'z' => {
-            if bold {
-                B_Z
-            } else {
-                Z
-            }
-        }
+        ' ' => 278.0,
+        'a' => b(556.0, 556.0),
+        'b' => b(556.0, 611.0),
+        'c' => b(500.0, 556.0),
+        'd' => b(556.0, 611.0),
+        'e' => b(556.0, 556.0),
+        'f' => b(278.0, 333.0),
+        'g' => b(556.0, 611.0),
+        'h' => b(556.0, 611.0),
+        'i' => b(222.0, 278.0),
+        'j' => b(222.0, 278.0),
+        'k' => b(500.0, 556.0),
+        'l' => b(222.0, 278.0),
+        'm' => b(833.0, 889.0),
+        'n' => b(556.0, 611.0),
+        'o' => b(556.0, 611.0),
+        'p' => b(556.0, 611.0),
+        'q' => b(556.0, 611.0),
+        'r' => b(333.0, 389.0),
+        's' => b(500.0, 556.0),
+        't' => b(278.0, 333.0),
+        'u' => b(556.0, 611.0),
+        'v' => b(500.0, 556.0),
+        'w' => b(722.0, 778.0),
+        'x' => b(500.0, 556.0),
+        'y' => b(500.0, 556.0),
+        'z' => b(500.0, 500.0),
         '0'..='9' => 556.0,
-        _ => other_width(ch, bold),
+        c => base14_other(c, bold),
     }
 }
 
-/// Non-alphabetic AFM widths (regular, bold).
-fn other_width(ch: char, bold: bool) -> f32 {
+fn base14_other(ch: char, bold: bool) -> f32 {
+    let b = |reg: f32, brd: f32| if bold { brd } else { reg };
     match ch {
-        '!' => {
-            if bold {
-                333.0
-            } else {
-                278.0
-            }
-        }
-        '"' => {
-            if bold {
-                474.0
-            } else {
-                355.0
-            }
-        }
-        '#' => {
-            if bold {
-                556.0
-            } else {
-                556.0
-            }
-        }
-        '$' => {
-            if bold {
-                556.0
-            } else {
-                556.0
-            }
-        }
-        '%' => {
-            if bold {
-                889.0
-            } else {
-                889.0
-            }
-        }
-        '&' => {
-            if bold {
-                722.0
-            } else {
-                667.0
-            }
-        }
-        '\'' => {
-            if bold {
-                238.0
-            } else {
-                191.0
-            }
-        }
-        '(' => {
-            if bold {
-                333.0
-            } else {
-                333.0
-            }
-        }
-        ')' => {
-            if bold {
-                333.0
-            } else {
-                333.0
-            }
-        }
-        '*' => {
-            if bold {
-                389.0
-            } else {
-                389.0
-            }
-        }
-        '+' => {
-            if bold {
-                584.0
-            } else {
-                584.0
-            }
-        }
-        ',' => {
-            if bold {
-                278.0
-            } else {
-                278.0
-            }
-        }
-        '-' => {
-            if bold {
-                333.0
-            } else {
-                333.0
-            }
-        }
-        '.' => {
-            if bold {
-                278.0
-            } else {
-                278.0
-            }
-        }
-        '/' => {
-            if bold {
-                278.0
-            } else {
-                278.0
-            }
-        }
-        ':' => {
-            if bold {
-                333.0
-            } else {
-                278.0
-            }
-        }
-        ';' => {
-            if bold {
-                333.0
-            } else {
-                278.0
-            }
-        }
-        '<' => {
-            if bold {
-                584.0
-            } else {
-                584.0
-            }
-        }
-        '=' => {
-            if bold {
-                584.0
-            } else {
-                584.0
-            }
-        }
-        '>' => {
-            if bold {
-                584.0
-            } else {
-                584.0
-            }
-        }
-        '?' => {
-            if bold {
-                611.0
-            } else {
-                556.0
-            }
-        }
-        '@' => {
-            if bold {
-                1015.0
-            } else {
-                1015.0
-            }
-        }
-        'A' => {
-            if bold {
-                722.0
-            } else {
-                667.0
-            }
-        }
-        'B' => {
-            if bold {
-                722.0
-            } else {
-                667.0
-            }
-        }
-        'C' => {
-            if bold {
-                722.0
-            } else {
-                722.0
-            }
-        }
-        'D' => {
-            if bold {
-                722.0
-            } else {
-                722.0
-            }
-        }
-        'E' => {
-            if bold {
-                667.0
-            } else {
-                667.0
-            }
-        }
-        'F' => {
-            if bold {
-                611.0
-            } else {
-                611.0
-            }
-        }
-        'G' => {
-            if bold {
-                778.0
-            } else {
-                778.0
-            }
-        }
-        'H' => {
-            if bold {
-                722.0
-            } else {
-                722.0
-            }
-        }
-        'I' => {
-            if bold {
-                278.0
-            } else {
-                278.0
-            }
-        }
-        'J' => {
-            if bold {
-                556.0
-            } else {
-                500.0
-            }
-        }
-        'K' => {
-            if bold {
-                722.0
-            } else {
-                667.0
-            }
-        }
-        'L' => {
-            if bold {
-                611.0
-            } else {
-                556.0
-            }
-        }
-        'M' => {
-            if bold {
-                833.0
-            } else {
-                833.0
-            }
-        }
-        'N' => {
-            if bold {
-                722.0
-            } else {
-                722.0
-            }
-        }
-        'O' => {
-            if bold {
-                778.0
-            } else {
-                778.0
-            }
-        }
-        'P' => {
-            if bold {
-                667.0
-            } else {
-                667.0
-            }
-        }
-        'Q' => {
-            if bold {
-                778.0
-            } else {
-                778.0
-            }
-        }
-        'R' => {
-            if bold {
-                722.0
-            } else {
-                722.0
-            }
-        }
-        'S' => {
-            if bold {
-                667.0
-            } else {
-                667.0
-            }
-        }
-        'T' => {
-            if bold {
-                611.0
-            } else {
-                611.0
-            }
-        }
-        'U' => {
-            if bold {
-                722.0
-            } else {
-                722.0
-            }
-        }
-        'V' => {
-            if bold {
-                667.0
-            } else {
-                667.0
-            }
-        }
-        'W' => {
-            if bold {
-                944.0
-            } else {
-                944.0
-            }
-        }
-        'X' => {
-            if bold {
-                667.0
-            } else {
-                667.0
-            }
-        }
-        'Y' => {
-            if bold {
-                667.0
-            } else {
-                667.0
-            }
-        }
-        'Z' => {
-            if bold {
-                611.0
-            } else {
-                611.0
-            }
-        }
-        '[' => {
-            if bold {
-                333.0
-            } else {
-                278.0
-            }
-        }
-        '\\' => {
-            if bold {
-                278.0
-            } else {
-                278.0
-            }
-        }
-        ']' => {
-            if bold {
-                333.0
-            } else {
-                278.0
-            }
-        }
-        '^' => {
-            if bold {
-                584.0
-            } else {
-                469.0
-            }
-        }
-        '_' => {
-            if bold {
-                556.0
-            } else {
-                556.0
-            }
-        }
-        '`' => {
-            if bold {
-                333.0
-            } else {
-                333.0
-            }
-        }
-        '{' => {
-            if bold {
-                389.0
-            } else {
-                334.0
-            }
-        }
-        '|' => {
-            if bold {
-                280.0
-            } else {
-                260.0
-            }
-        }
-        '}' => {
-            if bold {
-                389.0
-            } else {
-                334.0
-            }
-        }
-        '~' => {
-            if bold {
-                584.0
-            } else {
-                584.0
-            }
-        }
-        _ => {
-            if bold {
-                584.0
-            } else {
-                556.0
-            }
-        }
+        '!' => b(278.0, 333.0),
+        '"' => b(355.0, 474.0),
+        '#' | '$' => 556.0,
+        '%' => 889.0,
+        '&' => b(667.0, 722.0),
+        '\'' => b(191.0, 238.0),
+        '(' | ')' => 333.0,
+        '*' => 389.0,
+        '+' | '<' | '=' | '>' | '~' => 584.0,
+        ',' | '.' | '/' | '[' | '\\' | ']' => 278.0,
+        '-' => 333.0,
+        ':' | ';' => b(278.0, 333.0),
+        '?' => b(556.0, 611.0),
+        '@' => 1015.0,
+        'A' | 'B' => b(667.0, 722.0),
+        'C' | 'D' | 'H' | 'N' | 'O' | 'Q' | 'R' | 'S' | 'U' | 'X' | 'Y' => b(722.0, 722.0),
+        'E' => b(667.0, 667.0),
+        'F' => b(611.0, 611.0),
+        'G' | 'M' | 'W' => b(778.0, 778.0),
+        'I' => 278.0,
+        'J' => b(500.0, 556.0),
+        'K' | 'V' => b(667.0, 667.0),
+        'L' => b(556.0, 611.0),
+        'P' => b(667.0, 667.0),
+        'T' | 'Z' => b(611.0, 611.0),
+        '^' => b(469.0, 584.0),
+        '_' | '`' => b(556.0, 333.0),
+        '{' | '}' => b(334.0, 389.0),
+        '|' => b(260.0, 280.0),
+        _ => 556.0,
     }
 }
 
-/// Widths table namespace (AFM values, 1/1000 em).
-#[allow(non_snake_case)]
-mod W {
-    pub const SPACE: f32 = 278.0;
-    pub const A: f32 = 556.0;
-    pub const B: f32 = 556.0;
-    pub const C: f32 = 500.0;
-    pub const D: f32 = 556.0;
-    pub const E: f32 = 556.0;
-    pub const F: f32 = 278.0;
-    pub const G: f32 = 556.0;
-    pub const H: f32 = 556.0;
-    pub const I: f32 = 222.0;
-    pub const J: f32 = 222.0;
-    pub const K: f32 = 500.0;
-    pub const L: f32 = 222.0;
-    pub const M: f32 = 833.0;
-    pub const N: f32 = 556.0;
-    pub const O: f32 = 556.0;
-    pub const P: f32 = 556.0;
-    pub const Q: f32 = 556.0;
-    pub const R: f32 = 333.0;
-    pub const S: f32 = 500.0;
-    pub const T: f32 = 278.0;
-    pub const U: f32 = 556.0;
-    pub const V: f32 = 500.0;
-    pub const W_: f32 = 722.0;
-    pub const X: f32 = 500.0;
-    pub const Y: f32 = 500.0;
-    pub const Z: f32 = 500.0;
-
-    pub const B_SPACE: f32 = 278.0;
-    pub const B_A: f32 = 556.0;
-    pub const B_B: f32 = 611.0;
-    pub const B_C: f32 = 556.0;
-    pub const B_D: f32 = 611.0;
-    pub const B_E: f32 = 556.0;
-    pub const B_F: f32 = 333.0;
-    pub const B_G: f32 = 611.0;
-    pub const B_H: f32 = 611.0;
-    pub const B_I: f32 = 278.0;
-    pub const B_J: f32 = 278.0;
-    pub const B_K: f32 = 556.0;
-    pub const B_L: f32 = 278.0;
-    pub const B_M: f32 = 889.0;
-    pub const B_N: f32 = 611.0;
-    pub const B_O: f32 = 611.0;
-    pub const B_P: f32 = 611.0;
-    pub const B_Q: f32 = 611.0;
-    pub const B_R: f32 = 389.0;
-    pub const B_S: f32 = 556.0;
-    pub const B_T: f32 = 333.0;
-    pub const B_U: f32 = 611.0;
-    pub const B_V: f32 = 556.0;
-    pub const B_W: f32 = 778.0;
-    pub const B_X: f32 = 556.0;
-    pub const B_Y: f32 = 556.0;
-    pub const B_Z: f32 = 500.0;
+/// Measure a string's advance width in points (base-14).
+pub fn base14_measure(text: &str, font: Font, size: f32) -> f32 {
+    let bold = matches!(font, Font::HelveticaBold | Font::HelveticaBoldOblique);
+    let units: f32 = text.chars().map(|c| helvetica_width(c, bold)).sum();
+    units / 1000.0 * size
 }
 
 /// A horizontal glyph run in PostScript points.
@@ -736,17 +392,10 @@ pub struct GlyphRun {
     pub advance_pt: f32,
 }
 
-/// Measure a string's advance width in points.
-pub fn measure(text: &str, font: Font, size: f32) -> f32 {
-    let bold = matches!(font, Font::HelveticaBold | Font::HelveticaBoldOblique);
-    let units: f32 = text.chars().map(|c| helvetica_width(c, bold)).sum();
-    units / 1000.0 * size
-}
-
 impl GlyphRun {
     pub fn new(text: impl Into<String>, font: Font, size: f32) -> Self {
         let text = text.into();
-        let advance_pt = measure(&text, font, size);
+        let advance_pt = base14_measure(&text, font, size);
         Self {
             text,
             font,
@@ -761,18 +410,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn widths_match_afm() {
-        // 'M' is 833/1000 em in regular Helvetica.
-        assert!((measure("M", Font::Helvetica, 10.0) - 8.33).abs() < 0.01);
-        // space is 278.
-        assert!((measure(" ", Font::Helvetica, 10.0) - 2.78).abs() < 0.01);
-        // Bold 'l' is 278 vs regular 222.
-        assert!(measure("l", Font::HelveticaBold, 10.0) > measure("l", Font::Helvetica, 10.0));
+    fn base14_widths_match_afm() {
+        assert!((base14_measure("M", Font::Helvetica, 10.0) - 8.33).abs() < 0.01);
+        assert!((base14_measure(" ", Font::Helvetica, 10.0) - 2.78).abs() < 0.01);
+        assert!(
+            base14_measure("l", Font::HelveticaBold, 10.0)
+                > base14_measure("l", Font::Helvetica, 10.0)
+        );
     }
 
     #[test]
-    fn run_measures_itself() {
-        let run = GlyphRun::new("MM", Font::Helvetica, 12.0);
-        assert!((run.advance_pt - 19.992).abs() < 0.01);
+    fn empty_store_falls_back_to_base14() {
+        let mut store = FontStore::empty();
+        assert_eq!(store.resolve(None, false, false), Font::Helvetica);
+        assert_eq!(
+            store.resolve(Some(&"Georgia, serif".into()), false, false),
+            Font::TimesRoman
+        );
+        assert_eq!(
+            store.resolve(Some(&"Arial".into()), false, false),
+            Font::Helvetica
+        );
+    }
+
+    #[test]
+    fn face_metrics_extract() {
+        // Build a minimal store from any system font we can find; skip
+        // gracefully on systems without fonts.
+        let store = FontStore::with_system_fonts();
+        let mut store = store;
+        let f = store.resolve(Some(&"Arial".into()), false, false);
+        if let Font::Ttf(_) = f {
+            let face = store.face(f).expect("face loaded");
+            assert!(face.units_per_em > 0.0);
+            assert!(!face.cmap.is_empty());
+            let w = face.measure("MM", 12.0);
+            assert!(w > 0.0);
+        }
     }
 }

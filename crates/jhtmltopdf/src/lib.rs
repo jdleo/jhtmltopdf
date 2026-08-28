@@ -4,7 +4,7 @@
 //! this facade threads them together. See SPEC.md in the repo root.
 
 use jhtml_css::Stylesheet;
-use jhtml_layout::layout_scaled;
+use jhtml_layout::layout_with;
 use jhtml_parse::Document;
 use jhtml_pdf::Metadata;
 
@@ -48,7 +48,8 @@ pub fn render_with(html: &[u8], opts: Options) -> Vec<u8> {
         .viewport_px
         .map(|vp| phys_content / (vp * 0.75))
         .unwrap_or(1.0);
-    let result = layout_scaled(&doc, &ss, scale);
+    let mut fonts = jhtml_text::FontStore::with_system_fonts();
+    let result = layout_with(&doc, &ss, &fonts, scale);
     let author = find_meta_author(&doc);
     jhtml_pdf::write_pdf(
         &result.pages,
@@ -58,6 +59,7 @@ pub fn render_with(html: &[u8], opts: Options) -> Vec<u8> {
             title: doc.title(),
             author,
         },
+        &fonts,
     )
 }
 

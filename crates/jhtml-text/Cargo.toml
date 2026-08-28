@@ -7,3 +7,5 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+fontdb = "0.24.0"
+ttf-parser = "0.25.1"

@@ -9,7 +9,7 @@ use jhtml_css::{
     Stylesheet, Width,
 };
 use jhtml_parse::{Document, Node};
-use jhtml_text::{measure, Font};
+use jhtml_text::{Font, FontStore};
 
 /// One drawing instruction on a page.
 #[derive(Debug, Clone, PartialEq)]
@@ -79,7 +79,7 @@ pub struct LayoutResult {
 
 /// Layout a document into pages using the given stylesheet.
 pub fn layout(doc: &Document, ss: &Stylesheet) -> LayoutResult {
-    layout_scaled(doc, ss, 1.0)
+    layout_with(doc, ss, &FontStore::empty(), 1.0)
 }
 
 /// Layout with a scale factor < 1.0: the document is laid out on a
@@ -87,7 +87,12 @@ pub fn layout(doc: &Document, ss: &Stylesheet) -> LayoutResult {
 /// scaled down to the physical page, reproducing wkhtmltopdf-style
 /// shrink-to-fit for documents designed against a wide viewport.
 pub fn layout_scaled(doc: &Document, ss: &Stylesheet, scale: f32) -> LayoutResult {
-    let mut engine = Engine::new(doc, ss);
+    layout_with(doc, ss, &FontStore::empty(), scale)
+}
+
+/// Full-control entry point: explicit font store and scale.
+pub fn layout_with(doc: &Document, ss: &Stylesheet, store: &FontStore, scale: f32) -> LayoutResult {
+    let mut engine = Engine::new(doc, ss, store);
     if scale != 1.0 {
         engine.geo.width_pt /= scale;
         engine.geo.height_pt /= scale;
@@ -135,6 +140,7 @@ fn scale_ops(ops: &mut [Op], k: f32) {
 
 struct Engine<'a> {
     ss: &'a Stylesheet,
+    store: &'a FontStore,
     pages: Vec<Page>,
     geo: PageGeometry,
     // Cursor: current page + y position from top.
@@ -155,7 +161,7 @@ struct PageGeometry {
 }
 
 impl<'a> Engine<'a> {
-    fn new(_doc: &'a Document, ss: &'a Stylesheet) -> Self {
+    fn new(_doc: &'a Document, ss: &'a Stylesheet, store: &'a FontStore) -> Self {
         let pr = &ss.page;
         let geo = PageGeometry {
             width_pt: pr.width_pt.unwrap_or(595.0),
@@ -164,6 +170,7 @@ impl<'a> Engine<'a> {
         };
         Self {
             ss,
+            store,
             geo,
             pages: vec![Page {
                 width_pt: geo.width_pt,
@@ -254,7 +261,7 @@ impl<'a> Engine<'a> {
                 if text.is_empty() {
                     continue;
                 }
-                let width = measure(&text, Font::Helvetica, 9.0);
+                let width = self.store.measure(&text, Font::Helvetica, 9.0);
                 let x = (w - width) / 2.0;
                 let y = if name.starts_with("top") {
                     h - top / 2.0
@@ -297,7 +304,7 @@ impl<'a> Engine<'a> {
                         self.pending.push(Segment {
                             text: word.to_string(),
                             size: style.font_size(12.0),
-                            font: font_for(&style),
+                            font: self.font_for(&style),
                             color: style.color.unwrap_or([0.08, 0.08, 0.08]),
                             x: 0.0,
                             link: None,
@@ -399,7 +406,7 @@ impl<'a> Engine<'a> {
             segments.push(Segment {
                 text: "\u{2022}".into(),
                 size: style.font_size(12.0),
-                font: font_for(style),
+                font: self.font_for(&style),
                 color: style.color.unwrap_or([0.08, 0.08, 0.08]),
                 x: 0.0,
                 link: None,
@@ -412,7 +419,7 @@ impl<'a> Engine<'a> {
                         segments.push(Segment {
                             text: word.to_string(),
                             size: style.font_size(12.0),
-                            font: font_for(style),
+                            font: self.font_for(&style),
                             color: style.color.unwrap_or([0.08, 0.08, 0.08]),
                             x: 0.0,
                             link: None,
@@ -467,10 +474,10 @@ impl<'a> Engine<'a> {
                     // Natural single-line width of the child's content.
                     let mut nat = 0.0f32;
                     for s in &segs {
-                        nat += measure(&s.text, s.font(), s.size);
+                        nat += self.store.measure(&s.text, s.font(), s.size);
                     }
                     nat += segs.len().saturating_sub(1) as f32
-                        * measure(" ", Font::Helvetica, cs.font_size(12.0));
+                        * self.store.measure(" ", Font::Helvetica, cs.font_size(12.0));
                     nat.max(1.0)
                 }),
             };
@@ -504,7 +511,7 @@ impl<'a> Engine<'a> {
             for line in &lines {
                 let line_w: f32 = line
                     .last()
-                    .map(|s| s.x + measure(&s.text, s.font(), s.size))
+                    .map(|s| s.x + self.store.measure(&s.text, s.font(), s.size))
                     .unwrap_or(0.0);
                 let x0 = match cs.text_align.unwrap_or(jhtml_css::Align::Left) {
                     jhtml_css::Align::Left => x,
@@ -703,7 +710,7 @@ impl<'a> Engine<'a> {
                         out.push(Segment {
                             text: t.clone(),
                             size: style.font_size(12.0),
-                            font: font_for(style),
+                            font: self.font_for(&style),
                             color: style.color.unwrap_or([0.08, 0.08, 0.08]),
                             x: 0.0,
                             link: href.clone(),
@@ -713,7 +720,7 @@ impl<'a> Engine<'a> {
                             out.push(Segment {
                                 text: word.to_string(),
                                 size: style.font_size(12.0),
-                                font: font_for(style),
+                                font: self.font_for(&style),
                                 color: style.color.unwrap_or([0.08, 0.08, 0.08]),
                                 x: 0.0,
                                 link: href.clone(),
@@ -745,7 +752,7 @@ impl<'a> Engine<'a> {
         for line in lines {
             let line_w: f32 = line
                 .last()
-                .map(|s| s.x + measure(&s.text, s.font(), s.size))
+                .map(|s| s.x + self.store.measure(&s.text, s.font(), s.size))
                 .unwrap_or(0.0);
             let x0 = match align {
                 jhtml_css::Align::Left => self.geo.margins[0],
@@ -778,7 +785,7 @@ impl<'a> Engine<'a> {
                     self.push_op(Op::Link {
                         x: x0 + seg.x,
                         y: baseline - 2.0,
-                        w: measure(&seg.text, seg.font(), seg.size),
+                        w: self.store.measure(&seg.text, seg.font(), seg.size),
                         h: seg.size,
                         target,
                     });
@@ -797,8 +804,8 @@ impl<'a> Engine<'a> {
                 x = 0.0;
                 continue;
             }
-            let w = measure(&seg.text, seg.font(), seg.size);
-            let space_w = measure(" ", seg.font(), seg.size);
+            let w = self.store.measure(&seg.text, seg.font(), seg.size);
+            let space_w = self.store.measure(" ", seg.font(), seg.size);
             let needed = if line.is_empty() { w } else { w + space_w };
             if x + needed > width && !line.is_empty() {
                 lines.push(std::mem::take(&mut line));
@@ -1099,7 +1106,18 @@ fn upsert_margin(cur: Option<[f32; 4]>, idx: usize, v: Option<f32>) -> Option<[f
     Some(m)
 }
 
-fn font_for(style: &Style) -> Font {
+impl<'a> Engine<'a> {
+    fn font_for(&self, style: &Style) -> Font {
+        self.store.resolve(
+            style.font_family.as_ref(),
+            style.bold == Some(true),
+            style.italic == Some(true),
+        )
+    }
+}
+
+#[allow(dead_code)]
+fn font_for_old(style: &Style) -> Font {
     // Map CSS font-family keywords to base-14 fonts.
     let serif = style
         .font_family
@@ -1401,6 +1419,7 @@ mod m2_tests {
 
     #[test]
     fn serif_family_maps_to_times() {
+        // Empty store: serif families fall back to Times.
         let ops = render_ops(
             r#"<style>p { font-family: Georgia, serif; }</style><body><p>text</p></body>"#,
         );
