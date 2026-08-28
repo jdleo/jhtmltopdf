@@ -27,7 +27,22 @@ pub fn render(html: &[u8]) -> Vec<u8> {
 }
 
 /// Render HTML bytes into PDF bytes with explicit options.
+///
+/// Runs on a dedicated thread with a large stack: document trees nest
+/// recursively (parse, walk, collect) and real-world HTML can nest
+/// hundreds of levels deep, past the default main-thread stack.
 pub fn render_with(html: &[u8], opts: Options) -> Vec<u8> {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(256 * 1024 * 1024)
+            .spawn_scoped(scope, move || render_inner(html, opts))
+            .expect("spawn render thread")
+            .join()
+            .expect("render thread panicked")
+    })
+}
+
+fn render_inner(html: &[u8], opts: Options) -> Vec<u8> {
     let mut doc = Document::parse(html);
 
     // Compute-only JS: run scripts, then inject `{{key}}` values.

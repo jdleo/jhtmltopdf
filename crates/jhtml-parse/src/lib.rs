@@ -74,6 +74,30 @@ impl Node {
     }
 }
 
+fn detach_rcdom(handle: &markup5ever_rcdom::Handle) {
+    let mut stack = vec![handle.clone()];
+    while let Some(node) = stack.pop() {
+        let children: Vec<markup5ever_rcdom::Handle> =
+            node.children.borrow_mut().drain(..).collect();
+        stack.extend(children);
+    }
+}
+
+impl Drop for Node {
+    fn drop(&mut self) {
+        // Deep trees overflow the stack via recursive auto-drop; flatten.
+        let mut stack = Vec::new();
+        if let Node::Element { children, .. } = self {
+            stack.extend(children.drain(..));
+        }
+        while let Some(mut node) = stack.pop() {
+            if let Node::Element { children, .. } = &mut node {
+                stack.extend(children.drain(..));
+            }
+        }
+    }
+}
+
 impl Document {
     /// Parse raw HTML bytes (any encoding html5ever detects) into a tree.
     pub fn parse(html: &[u8]) -> Self {
@@ -83,6 +107,9 @@ impl Document {
             .expect("html5ever never fails, only recovers");
         let mut sink = Vec::new();
         let root = convert(&dom.document, &mut sink);
+        // The rcdom tree drops recursively and overflows on deep input;
+        // drain it iteratively before it dies.
+        detach_rcdom(&dom.document);
         Document { root }
     }
 
