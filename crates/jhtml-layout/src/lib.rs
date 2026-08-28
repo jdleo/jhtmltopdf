@@ -406,7 +406,7 @@ impl<'a> Engine<'a> {
             segments.push(Segment {
                 text: "\u{2022}".into(),
                 size: style.font_size(12.0),
-                font: self.font_for(&style),
+                font: self.font_for(style),
                 color: style.color.unwrap_or([0.08, 0.08, 0.08]),
                 x: 0.0,
                 link: None,
@@ -419,7 +419,7 @@ impl<'a> Engine<'a> {
                         segments.push(Segment {
                             text: word.to_string(),
                             size: style.font_size(12.0),
-                            font: self.font_for(&style),
+                            font: self.font_for(style),
                             color: style.color.unwrap_or([0.08, 0.08, 0.08]),
                             x: 0.0,
                             link: None,
@@ -710,7 +710,7 @@ impl<'a> Engine<'a> {
                         out.push(Segment {
                             text: t.clone(),
                             size: style.font_size(12.0),
-                            font: self.font_for(&style),
+                            font: self.font_for(style),
                             color: style.color.unwrap_or([0.08, 0.08, 0.08]),
                             x: 0.0,
                             link: href.clone(),
@@ -720,7 +720,7 @@ impl<'a> Engine<'a> {
                             out.push(Segment {
                                 text: word.to_string(),
                                 size: style.font_size(12.0),
-                                font: self.font_for(&style),
+                                font: self.font_for(style),
                                 color: style.color.unwrap_or([0.08, 0.08, 0.08]),
                                 x: 0.0,
                                 link: href.clone(),

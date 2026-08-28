@@ -111,7 +111,7 @@ impl FaceData {
             ),
         };
         let bbox = face.global_bounding_box();
-        let italic_angle = face.italic_angle() as f32;
+        let italic_angle = face.italic_angle();
         let style = match (face.style(), face.is_bold()) {
             (ttf_parser::Style::Italic, true) => "-BoldItalic",
             (ttf_parser::Style::Italic, false) => "-Italic",

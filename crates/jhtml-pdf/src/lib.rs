@@ -358,7 +358,7 @@ fn content_stream(ops: &[Op], fonts: &FontStore) -> String {
                         }
                         format!("<{hex}>")
                     }
-                    f => format!("({})", pdf_string(text)),
+                    _f => format!("({})", pdf_string(text)),
                 };
                 s.push_str(&format!(
                     "BT {:.3} {:.3} {:.3} rg /F{} {:.2} Tf {:.2} {:.2} Td {} Tj ET\n",
@@ -443,9 +443,9 @@ fn assemble_binary(objects: &[String], fontfiles: &[(usize, Vec<u8>)]) -> Vec<u8
         out.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
         if let Some(bytes) = fontfile_map.get(&i) {
             let head = obj.find(MARKER).unwrap_or(obj.len());
-            out.extend_from_slice(obj[..head].as_bytes());
+            out.extend_from_slice(&obj.as_bytes()[..head]);
             out.extend_from_slice(bytes);
-            out.extend_from_slice(obj[head + MARKER.len()..].as_bytes());
+            out.extend_from_slice(&obj.as_bytes()[head + MARKER.len()..]);
         } else {
             out.extend_from_slice(obj.as_bytes());
         }

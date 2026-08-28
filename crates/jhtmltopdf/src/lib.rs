@@ -48,7 +48,7 @@ pub fn render_with(html: &[u8], opts: Options) -> Vec<u8> {
         .viewport_px
         .map(|vp| phys_content / (vp * 0.75))
         .unwrap_or(1.0);
-    let mut fonts = jhtml_text::FontStore::with_system_fonts();
+    let fonts = jhtml_text::FontStore::with_system_fonts();
     let result = layout_with(&doc, &ss, &fonts, scale);
     let author = find_meta_author(&doc);
     jhtml_pdf::write_pdf(
