@@ -6,7 +6,7 @@
 //! and the resulting entries are substituted into the document wherever
 //! `{{key}}` placeholders appear. Scripts shape data, never layout.
 
-use boa_engine::{js_string, Context, Source};
+use boa_engine::{Context, Source};
 use std::collections::HashMap;
 
 /// Result of running user scripts over the input document.
@@ -86,7 +86,7 @@ pub fn run_scripts(scripts: &[String]) -> Result<ScriptOutput, ScriptError> {
 /// Parse `[["k","v"],...]` produced by JSON.stringify of Map entries.
 fn parse_entries(json: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
-    let mut chars = json.chars().peekable().enumerate();
+    let chars = json.chars().peekable().enumerate();
     let tokens = split_top_level_arrays(json);
     for pair in tokens {
         if let Some((k, v)) = split_json_pair(&pair) {

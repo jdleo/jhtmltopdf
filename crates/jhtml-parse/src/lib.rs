@@ -88,11 +88,11 @@ impl Drop for Node {
         // Deep trees overflow the stack via recursive auto-drop; flatten.
         let mut stack = Vec::new();
         if let Node::Element { children, .. } = self {
-            stack.extend(children.drain(..));
+            stack.append(children);
         }
         while let Some(mut node) = stack.pop() {
             if let Node::Element { children, .. } = &mut node {
-                stack.extend(children.drain(..));
+                stack.append(children);
             }
         }
     }
