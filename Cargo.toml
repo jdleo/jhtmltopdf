@@ -13,12 +13,12 @@ rust-version = "1.75"
 rayon = "1.10"
 thiserror = "1"
 
-jhtml-parse = { path = "crates/jhtml-parse" }
-jhtml-css = { path = "crates/jhtml-css" }
-jhtml-layout = { path = "crates/jhtml-layout" }
-jhtml-text = { path = "crates/jhtml-text" }
-jhtml-pdf = { path = "crates/jhtml-pdf" }
-jhtml-js = { path = "crates/jhtml-js" }
+jhtml-parse = { version = "0.1.0", path = "crates/jhtml-parse" }
+jhtml-css = { version = "0.1.0", path = "crates/jhtml-css" }
+jhtml-layout = { version = "0.1.0", path = "crates/jhtml-layout" }
+jhtml-text = { version = "0.1.0", path = "crates/jhtml-text" }
+jhtml-pdf = { version = "0.1.0", path = "crates/jhtml-pdf" }
+jhtml-js = { version = "0.1.0", path = "crates/jhtml-js" }
 
 [profile.release]
 lto = "fat"
