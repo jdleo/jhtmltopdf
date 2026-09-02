@@ -66,11 +66,15 @@ Not supported (yet): RTL/bidi text, CSS grid, footnotes, PDF/A or PDF/UA profile
 Same 3 cases as the deep-dive benchmark, cold-start single run, Apple Silicon Mac.
 Baseline is WeasyPrint 69.0 (Pango 1.57.1) on identical inputs.
 
-| Case | Input | WeasyPrint | jhtmltopdf | Speedup |
-|------|-------|------------|------------|---------|
-| Simple (1 page demo) | 1.6 KB | 0.31s | ~0.14s | ~2x |
-| Resume (real one-pager) | 10.6 KB | 0.36s | ~0.08s | ~4.5x |
-| Complex (60-section report) | 310 KB, 121 pages | 6.3s | ~0.35s | ~18x |
+| Case | Input | WeasyPrint | jhtmltopdf (warm) | Speedup |
+|------|-------|------------|-------------------|---------|
+| Simple (1 page demo) | 1.6 KB | 0.31s | ~0.026s | ~12x |
+| Resume (real one-pager) | 10.6 KB | 0.36s | ~0.108s | ~3.3x |
+| Complex (60-section report) | 310 KB, 121 pages | 6.3s | ~0.336s | ~19x |
+
+jhtmltopdf scans and metrics-loads system fonts on first use per process
+(adds ~100ms cold; caching is on the roadmap). WeasyPrint numbers are
+cold-start with Pango/glib already installed.
 
 For context, wkhtmltopdf 0.12.6 does the complex case in ~0.85s but only by
 silently shrinking the layout (renders 61 pages instead of the 121 the CSS
