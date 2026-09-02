@@ -1,29 +1,28 @@
-[workspace]
-resolver = "2"
-members = ["crates/*"]
-
-[workspace.package]
-version = "0.1.0"
+[package]
+name = "jhtmltopdf"
+description = "Pure-Rust HTML to PDF engine. No browser engine, no native deps."
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/jdleo/jhtmltopdf"
+readme = "README.md"
 rust-version = "1.75"
 
-[workspace.dependencies]
+[dependencies]
+html5ever = "0.27"
+markup5ever_rcdom = "0.3"
+tendril = "0.4"
+fontdb = "0.24"
+ttf-parser = "0.25"
 rayon = "1.10"
-thiserror = "1"
-
-jhtml-parse = { version = "0.1.0", path = "crates/jhtml-parse" }
-jhtml-css = { version = "0.1.0", path = "crates/jhtml-css" }
-jhtml-layout = { version = "0.1.0", path = "crates/jhtml-layout" }
-jhtml-text = { version = "0.1.0", path = "crates/jhtml-text" }
-jhtml-pdf = { version = "0.1.0", path = "crates/jhtml-pdf" }
-jhtml-js = { version = "0.1.0", path = "crates/jhtml-js" }
+flate2 = "1"
+boa_engine = "0.22"
 
 [profile.release]
 lto = "fat"
 codegen-units = 1
 panic = "abort"
 
-[profile.bench]
-inherits = "release"
+[[bin]]
+name = "jhtmltopdf"
+path = "src/main.rs"

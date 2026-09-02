@@ -4,12 +4,12 @@
 //! pages of draw ops. The output `Page` list is the canonical intermediate:
 //! jhtml-pdf turns it 1:1 into PDF objects. The layout tree IS the PDF.
 
-use jhtml_css::{
+use crate::css::{
     parse_pt, parse_pt_rel, Break, Compound, ContentToken, Display, Justify, Nth, Rule, Style,
     Stylesheet, Width,
 };
-use jhtml_parse::{Document, Node};
-use jhtml_text::{Font, FontStore};
+use crate::parse::{Document, Node};
+use crate::text::{Font, FontStore};
 
 /// One drawing instruction on a page.
 #[derive(Debug, Clone, PartialEq)]
@@ -513,10 +513,10 @@ impl<'a> Engine<'a> {
                     .last()
                     .map(|s| s.x + self.store.measure(&s.text, s.font(), s.size))
                     .unwrap_or(0.0);
-                let x0 = match cs.text_align.unwrap_or(jhtml_css::Align::Left) {
-                    jhtml_css::Align::Left => x,
-                    jhtml_css::Align::Center => x + (w - line_w) / 2.0,
-                    jhtml_css::Align::Right => x + w - line_w,
+                let x0 = match cs.text_align.unwrap_or(crate::css::Align::Left) {
+                    crate::css::Align::Left => x,
+                    crate::css::Align::Center => x + (w - line_w) / 2.0,
+                    crate::css::Align::Right => x + w - line_w,
                 };
                 ly += lh;
                 let baseline = pdf_y(ly, self.geo.height_pt, 0.0);
@@ -650,12 +650,12 @@ impl<'a> Engine<'a> {
         self.rule_background_for(&["td".into()])
     }
 
-    fn border_from_table(&self) -> Option<jhtml_css::Border> {
+    fn border_from_table(&self) -> Option<crate::css::Border> {
         None
     }
 
     fn rule_matches_nth(&self, node: &Node, nth_one_based: usize) -> bool {
-        let even = nth_one_based.is_multiple_of(2);
+        let even = nth_one_based % 2 == 0;
         self.ss.rules.iter().any(|r| {
             r.compounds.last().map(|c| match c.nth_child {
                 Some(Nth::Even) => even,
@@ -705,8 +705,8 @@ impl<'a> Engine<'a> {
         for c in node.children() {
             match c {
                 Node::Text(t) => {
-                    let ws = style.white_space.unwrap_or(jhtml_css::WhiteSpace::Normal);
-                    if ws == jhtml_css::WhiteSpace::Pre {
+                    let ws = style.white_space.unwrap_or(crate::css::WhiteSpace::Normal);
+                    if ws == crate::css::WhiteSpace::Pre {
                         out.push(Segment {
                             text: t.clone(),
                             size: style.font_size(12.0),
@@ -747,7 +747,7 @@ impl<'a> Engine<'a> {
         let fs = style.font_size(12.0);
         let lh = style.line_height.unwrap_or(1.15) * fs;
         let lines = self.wrap_segments(segments, width, lh);
-        let align = style.text_align.unwrap_or(jhtml_css::Align::Left);
+        let align = style.text_align.unwrap_or(crate::css::Align::Left);
         self.ensure(lines.len() as f32 * lh);
         for line in lines {
             let line_w: f32 = line
@@ -755,9 +755,9 @@ impl<'a> Engine<'a> {
                 .map(|s| s.x + self.store.measure(&s.text, s.font(), s.size))
                 .unwrap_or(0.0);
             let x0 = match align {
-                jhtml_css::Align::Left => self.geo.margins[0],
-                jhtml_css::Align::Center => self.geo.margins[0] + (width - line_w) / 2.0,
-                jhtml_css::Align::Right => self.geo.margins[0] + width - line_w,
+                crate::css::Align::Left => self.geo.margins[0],
+                crate::css::Align::Center => self.geo.margins[0] + (width - line_w) / 2.0,
+                crate::css::Align::Right => self.geo.margins[0] + width - line_w,
             };
             self.y += lh;
             if self.y > self.bottom() {
@@ -845,7 +845,7 @@ impl<'a> Engine<'a> {
         }
         // Inline style attribute wins over everything.
         if let Some(inline) = node.attr("style") {
-            let decls = jhtml_css::parse_decls(inline);
+            let decls = crate::css::parse_decls(inline);
             apply_decls(&mut s, &decls, parent.style.font_size(12.0));
         }
         // Inherit unset properties.
@@ -992,9 +992,9 @@ fn apply_decls(s: &mut Style, decls: &HashMap<String, String>, parent_fs: f32) {
             "background" | "background-color" => s.background = Some(parse_color(v)),
             "text-align" => {
                 s.text_align = Some(match v.as_str() {
-                    "center" => jhtml_css::Align::Center,
-                    "right" => jhtml_css::Align::Right,
-                    _ => jhtml_css::Align::Left,
+                    "center" => crate::css::Align::Center,
+                    "right" => crate::css::Align::Right,
+                    _ => crate::css::Align::Left,
                 })
             }
             "display" => {
@@ -1008,9 +1008,9 @@ fn apply_decls(s: &mut Style, decls: &HashMap<String, String>, parent_fs: f32) {
             }
             "justify-content" => {
                 s.justify = Some(if v == "space-between" {
-                    jhtml_css::Justify::SpaceBetween
+                    crate::css::Justify::SpaceBetween
                 } else {
-                    jhtml_css::Justify::Start
+                    crate::css::Justify::Start
                 })
             }
             "gap" => {
@@ -1062,7 +1062,7 @@ fn apply_decls(s: &mut Style, decls: &HashMap<String, String>, parent_fs: f32) {
                         .split_whitespace()
                         .find_map(parse_color)
                         .unwrap_or([0.0, 0.0, 0.0]);
-                    s.border = Some(jhtml_css::Border {
+                    s.border = Some(crate::css::Border {
                         width_pt: w.max(0.5),
                         color,
                     });
@@ -1080,9 +1080,9 @@ fn apply_decls(s: &mut Style, decls: &HashMap<String, String>, parent_fs: f32) {
             "font-family" => s.font_family = Some(v.to_string()),
             "white-space" => {
                 s.white_space = Some(if v == "pre" {
-                    jhtml_css::WhiteSpace::Pre
+                    crate::css::WhiteSpace::Pre
                 } else {
-                    jhtml_css::WhiteSpace::Normal
+                    crate::css::WhiteSpace::Normal
                 })
             }
             _ => {}
@@ -1183,7 +1183,7 @@ fn default_style(tag: &str) -> Style {
         "strong" | "b" => s.bold = Some(true),
         "em" | "i" => s.italic = Some(true),
         "a" => s.color = Some([0.0, 0.0, 0.9]),
-        "pre" => s.white_space = Some(jhtml_css::WhiteSpace::Pre),
+        "pre" => s.white_space = Some(crate::css::WhiteSpace::Pre),
         "th" => s.bold = Some(true),
         _ => {}
     }
@@ -1235,7 +1235,7 @@ fn descendant_width(node: &Node) -> Option<f32> {
     fn walk(n: &Node) -> Option<f32> {
         let mut best: Option<f32> = None;
         if let Some(style_width) = n.attr("style") {
-            let decls = jhtml_css::parse_decls(style_width);
+            let decls = crate::css::parse_decls(style_width);
             if let Some(w) = decls.get("width") {
                 if let Some(pt) = parse_pt_rel(w, 12.0) {
                     best = Some(best.unwrap_or(0.0).max(pt));
@@ -1371,7 +1371,7 @@ pub fn parse_color(v: &str) -> Option<[f32; 3]> {
 #[cfg(test)]
 mod m2_tests {
     use super::*;
-    use jhtml_css::Stylesheet;
+    use crate::css::Stylesheet;
 
     fn render_ops(html: &str) -> Vec<Op> {
         let doc = Document::parse(html.as_bytes());

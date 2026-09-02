@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Simple Benchmark</title>
+<style>
+  body { font-family: Helvetica, Arial, sans-serif; margin: 40px; color: #222; }
+  h1 { color: #2b6cb0; }
+  table { border-collapse: collapse; margin-top: 16px; }
+  td, th { border: 1px solid #999; padding: 6px 12px; }
+  a { color: #b32d2d; }
+</style>
+</head>
+<body>
+<h1>HTML to PDF Benchmark: Simple Case</h1>
+<p>This is a one page document with a heading, a paragraph, a link to
+<a href="https://example.com">example.com</a>, and a small table.</p>
+<table>
+  <tr><th>Engine</th><th>Approach</th></tr>
+  <tr><td>wkhtmltopdf</td><td>Patched Qt WebKit</td></tr>
+  <tr><td>WeasyPrint</td><td>Pure Python + Pango</td></tr>
+</table>
+<h2>Secondary Heading</h2>
+<p>Some closing text to fill the page slightly. Lists below.</p>
+<ul>
+  <li>First item</li>
+  <li>Second item</li>
+  <li>Third item</li>
+</ul>
+</body>
+</html>

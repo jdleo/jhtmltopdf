@@ -5,8 +5,8 @@
 //! base-14 fonts, embedded TTF faces (CID/Identity-H) with real metrics,
 //! per-page content streams, link annotations, outline tree.
 
-use jhtml_layout::{Destinations, Op, OutlineItem, Page, Target};
-use jhtml_text::{Font, FontStore};
+use crate::layout::{Destinations, Op, OutlineItem, Page, Target};
+use crate::text::{Font, FontStore};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 
