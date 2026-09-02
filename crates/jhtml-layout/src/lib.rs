@@ -113,7 +113,7 @@ pub fn layout_with(doc: &Document, ss: &Stylesheet, store: &FontStore, scale: f3
             page.height_pt *= k;
             scale_ops(&mut page.ops, k);
         }
-        for (_, (_, y)) in r.dests.map.iter_mut() {
+        for (_, y) in r.dests.map.values_mut() {
             *y *= k;
         }
     }
