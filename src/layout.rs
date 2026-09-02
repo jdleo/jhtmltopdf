@@ -128,7 +128,20 @@ fn scale_ops(ops: &mut [Op], k: f32) {
                 *y *= k;
                 *size *= k;
             }
-            Op::Rect { x, y, w, h, .. } | Op::Link { x, y, w, h, .. } => {
+            Op::Rect { x, y, w, h, .. } => {
+                *x *= k;
+                *y *= k;
+                *w *= k;
+                *h *= k;
+                // Hairlines below ~0.5pt vanish or dither at render time.
+                if *w > 0.0 && *w < MIN_LINE_PT {
+                    *w = MIN_LINE_PT;
+                }
+                if *h > 0.0 && *h < MIN_LINE_PT {
+                    *h = MIN_LINE_PT;
+                }
+            }
+            Op::Link { x, y, w, h, .. } => {
                 *x *= k;
                 *y *= k;
                 *w *= k;
@@ -137,6 +150,9 @@ fn scale_ops(ops: &mut [Op], k: f32) {
         }
     }
 }
+
+/// Minimum physical width of any vector rule after scaling.
+const MIN_LINE_PT: f32 = 0.5;
 
 struct Engine<'a> {
     ss: &'a Stylesheet,
@@ -856,6 +872,9 @@ impl<'a> Engine<'a> {
         if s.bold.is_none() {
             s.bold = p.bold;
         }
+        if s.weight.is_none() {
+            s.weight = p.weight;
+        }
         if s.italic.is_none() {
             s.italic = p.italic;
         }
@@ -965,10 +984,19 @@ fn compound_specificity(c: &Compound) -> f32 {
 }
 
 fn apply_decls(s: &mut Style, decls: &HashMap<String, String>, parent_fs: f32) {
-    // Pass 1: font-size first so em-based lengths below resolve against it.
+    // Pass 1: font-size and weight first (they scale other properties).
     if let Some(v) = decls.get("font-size") {
         let fs = parse_pt_rel(v, parent_fs).unwrap_or(parent_fs);
         s.font_size_pt = Some(fs);
+    }
+    if let Some(v) = decls.get("font-weight") {
+        let w = match v.as_str() {
+            "bold" | "bolder" => 700u16,
+            "normal" | "light" | "lighter" => 400u16,
+            n => n.parse::<u16>().unwrap_or(400).clamp(100, 900),
+        };
+        s.weight = Some(w);
+        s.bold = Some(w >= 600);
     }
     let own_fs = s.font_size_pt.unwrap_or(parent_fs);
     let lengths = |v: &str| -> Vec<f32> {
@@ -979,14 +1007,7 @@ fn apply_decls(s: &mut Style, decls: &HashMap<String, String>, parent_fs: f32) {
     for (k, v) in decls {
         match k.as_str() {
             "font-size" => {}
-            "font-weight" => {
-                let n: f32 = v.parse().unwrap_or(match v.as_str() {
-                    "bold" | "bolder" => 700.0,
-                    "light" | "lighter" | "normal" => 400.0,
-                    _ => 400.0,
-                });
-                s.bold = Some(n >= 600.0);
-            }
+            "font-weight" => {} // handled in pass 1
             "font-style" => s.italic = Some(v == "italic" || v == "oblique"),
             "color" => s.color = parse_color(v),
             "background" | "background-color" => s.background = Some(parse_color(v)),
@@ -1110,7 +1131,7 @@ impl<'a> Engine<'a> {
     fn font_for(&self, style: &Style) -> Font {
         self.store.resolve(
             style.font_family.as_ref(),
-            style.bold == Some(true),
+            style.weight,
             style.italic == Some(true),
         )
     }

@@ -79,11 +79,13 @@ impl FaceData {
     }
 
     pub fn from_bytes(bytes: Vec<u8>, index: u32) -> Option<FaceData> {
-        let face = ttf_parser::Face::parse(&bytes, index).ok()?;
-        if index != 0 && ttf_parser::fonts_in_collection(&bytes).is_some() {
-            // Can't embed a sub-face of a TTC as FontFile2; skip.
-            return None;
-        }
+        // FontFile2 must be ONE bare sfnt. Collections (ttcf) must be split;
+        // embedding the raw container makes viewers substitute the font.
+        let bytes = match extract_from_collection(&bytes, index) {
+            Some(single) => single,
+            None => bytes,
+        };
+        let face = ttf_parser::Face::parse(&bytes, 0).ok()?;
         let units_per_em = face.units_per_em() as f32;
         let mut cmap: HashMap<char, u16> = HashMap::new();
         if let Some(tables) = face.tables().cmap {
@@ -182,7 +184,7 @@ fn alias_candidates(name: &str) -> Vec<&'static str> {
 pub struct FontStore {
     db: Option<fontdb::Database>,
     faces: std::sync::RwLock<Vec<FaceData>>,
-    cache: std::sync::Mutex<HashMap<(String, bool, bool), Font>>,
+    cache: std::sync::Mutex<HashMap<(String, u16, bool), Font>>,
 }
 
 impl FontStore {
@@ -204,7 +206,9 @@ impl FontStore {
 
     /// Resolve a CSS font-family list (plus bold/italic) to a Font.
     /// Falls back to base-14 when no system face matches.
-    pub fn resolve(&self, families: Option<&String>, bold: bool, italic: bool) -> Font {
+    pub fn resolve(&self, families: Option<&String>, weight: Option<u16>, italic: bool) -> Font {
+        let weight = weight.unwrap_or(400);
+        let bold = weight >= 600;
         let base = match (bold, italic) {
             (true, true) => Font::HelveticaBoldOblique,
             (true, false) => Font::HelveticaBold,
@@ -215,11 +219,7 @@ impl FontStore {
             Some(l) if !l.is_empty() => l,
             _ => return base,
         };
-        let weight = if bold {
-            fontdb::Weight::BOLD
-        } else {
-            fontdb::Weight::NORMAL
-        };
+        let fd_weight = fontdb::Weight(weight);
         let style = if italic {
             fontdb::Style::Italic
         } else {
@@ -245,14 +245,14 @@ impl FontStore {
                 "sans-serif" | "cursive" | "fantasy" | "system-ui" => continue,
                 _ => {}
             }
-            let key = (name.to_ascii_lowercase(), bold, italic);
+            let key = (name.to_ascii_lowercase(), weight, italic);
             if let Some(f) = self.cache.lock().unwrap().get(&key) {
                 return *f;
             }
             // Try the requested family, then metric-compatible aliases
             // (Linux ships Liberation/DejaVu instead of the MS core fonts).
             for candidate in alias_candidates(name) {
-                if let Some(f) = self.try_load(candidate, weight, style) {
+                if let Some(f) = self.try_load(candidate, fd_weight, style) {
                     self.cache.lock().unwrap().insert(key, f);
                     return f;
                 }
@@ -268,12 +268,7 @@ impl FontStore {
             };
         }
         if wants_mono {
-            return match (bold, italic) {
-                (true, true) => Font::Courier,
-                (true, false) => Font::Courier,
-                (false, true) => Font::Courier,
-                (false, false) => Font::Courier,
-            };
+            return Font::Courier;
         }
         base
     }
@@ -319,6 +314,60 @@ impl FontStore {
             f => base14_measure(text, f, size),
         }
     }
+}
+
+/// Extract one face from a TTC container as a standalone sfnt file.
+/// Returns None for plain fonts.
+fn extract_from_collection(bytes: &[u8], index: u32) -> Option<Vec<u8>> {
+    if bytes.get(0..4) != Some(&b"ttcf"[..]) {
+        return None;
+    }
+    let n = u32::from_be_bytes(bytes.get(8..12)?.try_into().ok()?) as usize;
+    if index as usize >= n {
+        return None;
+    }
+    let off_start = 12 + 4 * index as usize;
+    let face_off =
+        u32::from_be_bytes(bytes.get(off_start..off_start + 4)?.try_into().ok()?) as usize;
+    // sfnt header: version(4) numTables(2) searchRange(2) entrySelector(2) rangeShift(2)
+    let num_tables =
+        u16::from_be_bytes(bytes.get(face_off + 4..face_off + 6)?.try_into().ok()?) as usize;
+    let mut tables: Vec<(&[u8], [u8; 4])> = Vec::new();
+    for t in 0..num_tables {
+        let rec = face_off + 12 + 16 * t;
+        let tag: [u8; 4] = bytes.get(rec..rec + 4)?.try_into().ok()?;
+        let t_off = u32::from_be_bytes(bytes.get(rec + 8..rec + 12)?.try_into().ok()?) as usize;
+        let t_len = u32::from_be_bytes(bytes.get(rec + 12..rec + 16)?.try_into().ok()?) as usize;
+        let data = bytes.get(t_off..t_off + t_len)?;
+        tables.push((data, tag));
+    }
+    // Layout: 12-byte header + 16-byte records, then 4-aligned table data.
+    let dir_len = 12 + 16 * tables.len();
+    let mut body_off = dir_len;
+    let mut laid_out: Vec<(&[u8], [u8; 4], usize, usize)> = Vec::new();
+    for (data, tag) in &tables {
+        let off = body_off;
+        let padded = (data.len() + 3) & !3;
+        body_off += padded;
+        laid_out.push((data, *tag, off, data.len()));
+    }
+    let mut out = vec![0u8; body_off];
+    out[0..4].copy_from_slice(&0x00010000u32.to_be_bytes());
+    out[4..6].copy_from_slice(&(tables.len() as u16).to_be_bytes());
+    // searchRange / entrySelector / rangeShift
+    let entry_sel = (tables.len() as f64).log2().floor() as u16;
+    let search = 16u16 << entry_sel;
+    out[6..8].copy_from_slice(&search.to_be_bytes());
+    out[8..10].copy_from_slice(&entry_sel.to_be_bytes());
+    out[10..12].copy_from_slice(&(16 * tables.len() as u16 - search).to_be_bytes());
+    for (t, (data, tag, off, len)) in laid_out.iter().enumerate() {
+        let rec = 12 + 16 * t;
+        out[rec..rec + 4].copy_from_slice(tag);
+        out[rec + 8..rec + 12].copy_from_slice(&(*off as u32).to_be_bytes());
+        out[rec + 12..rec + 16].copy_from_slice(&(*len as u32).to_be_bytes());
+        out[*off..*off + data.len()].copy_from_slice(data);
+    }
+    Some(out)
 }
 
 /// Advance width of `ch` in 1/1000 em units for base-14 Helvetica.
@@ -440,13 +489,13 @@ mod tests {
     #[test]
     fn empty_store_falls_back_to_base14() {
         let mut store = FontStore::empty();
-        assert_eq!(store.resolve(None, false, false), Font::Helvetica);
+        assert_eq!(store.resolve(None, Some(400), false), Font::Helvetica);
         assert_eq!(
-            store.resolve(Some(&"Georgia, serif".into()), false, false),
+            store.resolve(Some(&"Georgia, serif".into()), Some(400), false),
             Font::TimesRoman
         );
         assert_eq!(
-            store.resolve(Some(&"Arial".into()), false, false),
+            store.resolve(Some(&"Arial".into()), Some(400), false),
             Font::Helvetica
         );
     }
@@ -457,7 +506,7 @@ mod tests {
         // gracefully on systems without fonts.
         let store = FontStore::with_system_fonts();
         let mut store = store;
-        let f = store.resolve(Some(&"Arial".into()), false, false);
+        let f = store.resolve(Some(&"Arial".into()), Some(400), false);
         if let Font::Ttf(_) = f {
             let face = store.face(f).expect("face loaded");
             assert!(face.units_per_em > 0.0);

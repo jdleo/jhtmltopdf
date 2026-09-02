@@ -12,6 +12,8 @@ use std::collections::HashMap;
 pub struct Style {
     pub font_size_pt: Option<f32>,
     pub bold: Option<bool>,
+    /// Numeric CSS font-weight (400 normal .. 900 black), for real face matching.
+    pub weight: Option<u16>,
     pub italic: Option<bool>,
     pub color: Option<[f32; 3]>,
     pub background: Option<Option<[f32; 3]>>,

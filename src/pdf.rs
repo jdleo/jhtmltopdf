@@ -75,11 +75,16 @@ pub fn write_pdf(
                     "<< /Type /Font /Subtype /Type0 /BaseFont /{} /Encoding /Identity-H /DescendantFonts [{} 0 R] /ToUnicode {} 0 R >>",
                     fd.name, cid, tounicode
                 ));
+                // PDF glyph space is 1/1000 em regardless of the font's
+                // internal unitsPerEm (spec 9.7.4.2 default FontMatrix).
+                // Raw font units render 2.048x too wide for 2048-upm fonts.
+                let upm = fd.units_per_em;
+                let to_glyph_space = 1000.0 / upm;
                 let widths: Vec<String> = used
                     .keys()
                     .map(|gid| {
                         let w = fd.advances.get(gid).copied().unwrap_or(0.0);
-                        format!("{gid} {gid} {}", w.round() as i64)
+                        format!("{gid} {gid} {}", (w * to_glyph_space).round() as i64)
                     })
                     .collect();
                 objects.push(format!(
@@ -88,18 +93,17 @@ pub fn write_pdf(
                     desc,
                     widths.join(" ")
                 ));
-                let upm = fd.units_per_em;
                 objects.push(format!(
                     "<< /Type /FontDescriptor /FontName /{} /Flags 32 /FontBBox [{:.0} {:.0} {:.0} {:.0}] /ItalicAngle {:.1} /Ascent {:.0} /Descent {:.0} /CapHeight {:.0} /StemV 80 /FontFile2 {} 0 R >>",
                     fd.name,
-                    fd.bbox[0],
-                    fd.bbox[1],
-                    fd.bbox[2],
-                    fd.bbox[3],
+                    fd.bbox[0] * to_glyph_space,
+                    fd.bbox[1] * to_glyph_space,
+                    fd.bbox[2] * to_glyph_space,
+                    fd.bbox[3] * to_glyph_space,
                     fd.italic_angle,
-                    fd.ascent,
-                    fd.descent,
-                    upm * 0.7,
+                    fd.ascent * to_glyph_space,
+                    fd.descent * to_glyph_space,
+                    upm * 0.7 * to_glyph_space,
                     file
                 ));
                 // Binary payload (zlib-compressed) spliced at assembly.
