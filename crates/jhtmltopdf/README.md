@@ -3,7 +3,7 @@
 [![Crates.io](https://img.shields.io/crates/v/jhtmltopdf.svg)](https://crates.io/crates/jhtmltopdf)
 [![Docs.rs](https://docs.rs/jhtmltopdf/badge.svg)](https://docs.rs/jhtmltopdf)
 [![CI](https://github.com/jdleo/jhtmltopdf/actions/workflows/ci.yml/badge.svg)](https://github.com/jdleo/jhtmltopdf/actions/workflows/ci.yml)
-[![License: MIT-0](https://img.shields.io/badge/license-MIT--0-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Pure-Rust HTML to PDF engine. No WebKit, no browser engine, no native
 dependencies. One binary, print-first, fast.
@@ -89,4 +89,4 @@ never touch layout. Each stage is its own crate: `jhtml-parse`, `jhtml-css`,
 
 ## License
 
-MIT-0: public domain adjacent, no attribution required, no warranty.
+MIT: free to use, modify, and redistribute for any purpose. The only requirement is keeping the copyright notice (attribution). No warranty.
