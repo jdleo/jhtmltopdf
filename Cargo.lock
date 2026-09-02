@@ -750,7 +750,7 @@ checksum = "4d3667095d64c3ecffc96463a21157b04bf3e252f6e8d5750b20c02e33c194e3"
 
 [[package]]
 name = "jhtmltopdf"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "boa_engine",
  "flate2",

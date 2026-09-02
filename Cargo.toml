@@ -1,7 +1,7 @@
 [package]
 name = "jhtmltopdf"
 description = "Pure-Rust HTML to PDF engine. No browser engine, no native deps."
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/jdleo/jhtmltopdf"
