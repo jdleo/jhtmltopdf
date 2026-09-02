@@ -164,6 +164,19 @@ impl FaceData {
     }
 }
 
+/// Metric-compatible fallbacks for the common web/MS fonts on systems
+/// (like Linux CI or minimal servers) that lack them.
+fn alias_candidates(name: &str) -> Vec<&'static str> {
+    let mut v: Vec<&'static str> = vec![Box::leak(name.to_owned().into_boxed_str())];
+    match name.to_ascii_lowercase().as_str() {
+        "arial" | "helvetica" => v.extend(["Liberation Sans", "DejaVu Sans"]),
+        "times new roman" | "times" | "georgia" => v.extend(["Liberation Serif", "DejaVu Serif"]),
+        "courier new" | "courier" => v.extend(["Liberation Mono", "DejaVu Sans Mono"]),
+        _ => {}
+    }
+    v
+}
+
 /// System font discovery + CSS family resolution.
 #[derive(Debug, Default)]
 pub struct FontStore {
@@ -236,28 +249,12 @@ impl FontStore {
             if let Some(f) = self.cache.lock().unwrap().get(&key) {
                 return *f;
             }
-            if let Some(db) = &self.db {
-                let query = fontdb::Query {
-                    families: &[fontdb::Family::Name(name)],
-                    weight,
-                    style,
-                    stretch: fontdb::Stretch::Normal,
-                };
-                if let Some(id) = db.query(&query) {
-                    if let Some(info) = db.face(id) {
-                        let mut faces = self.faces.write().unwrap();
-                        let idx = faces.len() as u32;
-                        let path = match &info.source {
-                            fontdb::Source::File(p) => p.clone(),
-                            _ => continue,
-                        };
-                        if let Some(data) = FaceData::load(&path, info.index) {
-                            faces.push(data);
-                            let f = Font::Ttf(idx);
-                            self.cache.lock().unwrap().insert(key, f);
-                            return f;
-                        }
-                    }
+            // Try the requested family, then metric-compatible aliases
+            // (Linux ships Liberation/DejaVu instead of the MS core fonts).
+            for candidate in alias_candidates(name) {
+                if let Some(f) = self.try_load(candidate, weight, style) {
+                    self.cache.lock().unwrap().insert(key, f);
+                    return f;
                 }
             }
         }
@@ -279,6 +276,27 @@ impl FontStore {
             };
         }
         base
+    }
+
+    fn try_load(&self, family: &str, weight: fontdb::Weight, style: fontdb::Style) -> Option<Font> {
+        let db = self.db.as_ref()?;
+        let query = fontdb::Query {
+            families: &[fontdb::Family::Name(family)],
+            weight,
+            style,
+            stretch: fontdb::Stretch::Normal,
+        };
+        let id = db.query(&query)?;
+        let info = db.face(id)?;
+        let path = match &info.source {
+            fontdb::Source::File(p) => p.clone(),
+            _ => return None,
+        };
+        let mut faces = self.faces.write().unwrap();
+        let idx = faces.len() as u32;
+        let data = FaceData::load(&path, info.index)?;
+        faces.push(data);
+        Some(Font::Ttf(idx))
     }
 
     pub fn face(&self, f: Font) -> Option<FaceData> {
